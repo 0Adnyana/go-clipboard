@@ -27,6 +27,21 @@ go.work.sum
 # env file
 .env
 
+# Go build artifacts
+/bin/
+/tmp/
+/dist/
+node_modules/
+web/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Archived OpenSpec changes
+openspec/changes/archive/

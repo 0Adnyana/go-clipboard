@@ -1,0 +1,22 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/server ./cmd/server"
+  bin = "./tmp/server"
+  include_ext = ["go", "tpl", "tmpl", "html"]
+  exclude_dir = ["web", "tmp", "node_modules", "openspec"]
+  # SIGINT is the only graceful signal air can send; without send_interrupt it
+  # goes straight to SIGKILL, which leaves :8080 bound and pool connections
+  # open. kill_delay is the window the process gets before the SIGKILL follows.
+  send_interrupt = true
+  kill_delay = "500ms"
+
+[log]
+  time = false
+
+[color]
+  main = "yellow"
+  build = "cyan"
+  runner = "green"
+  watcher = "magenta"

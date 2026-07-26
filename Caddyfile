@@ -1,0 +1,16 @@
+# http:// is explicit to avoid Caddy's local HTTPS CA, which requires a one-time
+# `sudo caddy trust` and produces confusing TLS handshake failures on first run.
+#
+# handle (not handle_path) keeps matcher specificity: /api/* wins over the catch-all
+# without depending on block order, and the /api prefix is forwarded intact to Go.
+http://localhost:{$PROXY_PORT:3000} {
+	handle /api/* {
+		reverse_proxy localhost:{$PORT:8080} {
+			lb_try_duration 5s
+			lb_try_interval 250ms
+		}
+	}
+	handle {
+		reverse_proxy localhost:{$VITE_PORT:5173}
+	}
+}
