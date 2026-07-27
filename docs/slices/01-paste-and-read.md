@@ -20,8 +20,8 @@ type `host/notes` on my phone and get exactly what I pasted — every trailing n
   about who holds it. The claim has to be atomic — no check-then-write window — and it must not
   double as an edit operation, because editing arrives later and relaxing the claim rule to
   accommodate it would quietly break reclaim.
-- **Names are case-insensitive.** `/Notes` and `/notes` are the same clip. Mobile keyboards
-  autocapitalize and typing the URL on the other device *is* the core flow.
+- **Names are case-sensitive.** `/Notes` and `/notes` are different clips. The typed
+  form is preserved end to end so the URL you create is the URL you open.
 - **One flat pool, and it stays flat.** `host/notes`, never `host/alice/notes`. The link is the whole
   product and it has to survive being read off a screen and typed on a phone, which is an argument
   per-user namespaces cannot answer — a prefix nobody wants to type, on a URL whose entire job is to

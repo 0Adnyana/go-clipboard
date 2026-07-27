@@ -11,6 +11,8 @@ import (
 )
 
 type Querier interface {
+	ClaimClip(ctx context.Context, arg ClaimClipParams) (Clip, error)
+	GetLiveClip(ctx context.Context, slug string) (Clip, error)
 	ServerTime(ctx context.Context) (pgtype.Timestamptz, error)
 }
 

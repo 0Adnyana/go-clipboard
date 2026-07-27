@@ -113,3 +113,17 @@ The migrations directory SHALL contain at least one migration that is domain-neu
 
 - **WHEN** the baseline migration is rolled back and applied again
 - **THEN** both operations succeed without error
+
+### Requirement: Clips table migration is explicit and reversible
+
+A goose migration SHALL introduce the clips storage needed for paste-and-read, including a uniqueness constraint on the exact slug string. The migration MUST be applied only via the existing `migrate` commands, MUST include a real down migration, and MUST NOT run on server startup.
+
+#### Scenario: Migrate up creates clips storage
+
+- **WHEN** `migrate up` is run with the clips migration pending
+- **THEN** the clips table and its uniqueness constraints exist and health reports migrations not pending
+
+#### Scenario: Migrate down removes clips storage
+
+- **WHEN** `migrate down` rolls back the clips migration
+- **THEN** the clips table is removed and a subsequent up can reapply it

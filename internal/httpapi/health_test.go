@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/0adnyana/go-clipboard/internal/db"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	appmigrate "github.com/0adnyana/go-clipboard/internal/migrate"
@@ -20,6 +21,14 @@ type fakeQuerier struct {
 
 func (f fakeQuerier) ServerTime(ctx context.Context) (pgtype.Timestamptz, error) {
 	return f.serverTime, f.err
+}
+
+func (f fakeQuerier) ClaimClip(ctx context.Context, arg db.ClaimClipParams) (db.Clip, error) {
+	return db.Clip{}, errors.New("not implemented")
+}
+
+func (f fakeQuerier) GetLiveClip(ctx context.Context, slug string) (db.Clip, error) {
+	return db.Clip{}, errors.New("not implemented")
 }
 
 type fakeMigrationChecker struct {

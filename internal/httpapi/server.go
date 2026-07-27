@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/0adnyana/go-clipboard/internal/clips"
 )
 
 type Server struct {
@@ -27,8 +29,19 @@ func NewServer(logger *slog.Logger, deps Dependencies) *Server {
 		mux:    mux,
 	}
 
+	clipSvc := deps.ClipService
+	if clipSvc == nil && deps.Queries != nil {
+		clipSvc = clips.NewService(clips.NewPGStore(deps.Queries))
+	}
+
 	routes := []apiRoute{
 		{http.MethodGet, "/api/health", handleHealth(deps)},
+	}
+	if clipSvc != nil {
+		routes = append(routes,
+			apiRoute{http.MethodPost, "/api/clips", handleCreateClip(logger, clipSvc)},
+			apiRoute{http.MethodGet, "/api/clips/{slug}", handleReadClip(logger, clipSvc)},
+		)
 	}
 
 	allowed := make(map[string][]string, len(routes))

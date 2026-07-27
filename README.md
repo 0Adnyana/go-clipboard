@@ -1,6 +1,6 @@
 # go-clipboard
 
-Online clipboard built with Go, inspired by [cl1p](https://cl1p.net). This repository currently ships a **development walking skeleton**: a React status page, a JSON API, Postgres connectivity, and explicit schema migrations — all behind a single Caddy origin.
+Online clipboard built with Go, inspired by [cl1p](https://cl1p.net). This repository currently ships a **development walking skeleton** with the first vertical slice: **paste and read** clips locally (create on `/`, open `/<name>` on another device). That flow is for local testing only — it is not publishable until later slices add rate limiting and deployment.
 
 ## Prerequisites
 
@@ -36,7 +36,7 @@ After `cp .env.example .env`, edit `DATABASE_URL` and replace `<macos-username>`
 
 Open the URL printed by `make dev` — **`http://localhost:3000`** (or your `PROXY_PORT`). That proxy port is the supported entry point. Ports `:8080` (Go) and `:5173` (Vite) bypass the proxy and are not supported for day-to-day development.
 
-The status page should report the database reachable and no migrations pending once `make migrate` has succeeded.
+The create form should load at `/`. Paste text under a name, then open `http://localhost:3000/<name>` in another browser context to read it back. Stack diagnostics remain at `/status` once `make migrate` has succeeded.
 
 ## Common commands
 
@@ -56,6 +56,10 @@ The HTTP contract lives in [`docs/api/openapi.yaml`](docs/api/openapi.yaml). Imp
 
 ```bash
 curl -s http://localhost:3000/api/health | jq
+curl -s -X POST http://localhost:3000/api/clips \
+  -H 'Content-Type: application/json' \
+  -d '{"slug":"demo-clip","body":"hello\n"}' | jq
+curl -s http://localhost:3000/api/clips/demo-clip | jq
 ```
 
 Go serves only `/api/*`. Product intent stays in [`docs/slices/`](docs/slices/); grow the OpenAPI file in the same change as each new handler.

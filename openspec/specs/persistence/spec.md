@@ -103,3 +103,31 @@ The query set SHALL include at least one query that requires no domain tables, a
 
 - **WHEN** the query runs against a database with only the baseline migration applied
 - **THEN** it succeeds without requiring any application table to exist
+
+### Requirement: Clips are stored through the generated query layer
+
+Clip persistence SHALL be expressed as SQL in `db/queries` and consumed only through the `sqlc`-generated `Querier` interface. Handlers and services MUST NOT embed ad-hoc SQL strings for create, reclaim, or read.
+
+#### Scenario: Create and read go through generated methods
+
+- **WHEN** a clip is created or a live clip is read
+- **THEN** the operation executes via generated `Querier` methods backed by checked-in query files
+
+#### Scenario: Service logic is unit-testable with a fake Querier
+
+- **WHEN** unit tests exercise claim, collision, and read behaviour
+- **THEN** they substitute an in-memory `Querier` and run without Postgres
+
+### Requirement: Live lookup and atomic claim are expressible in SQL
+
+The query set SHALL support reading a live clip by exact slug and claiming a slug only when no live row holds it, including reclaim of an expired row, without a check-then-insert race in application code.
+
+#### Scenario: Live read ignores expired rows
+
+- **WHEN** a read query runs for a slug whose row is expired
+- **THEN** it returns no live clip
+
+#### Scenario: Claim fails while a live row exists
+
+- **WHEN** a claim query runs for a slug with `expires_at` still in the future
+- **THEN** no overwrite occurs and the caller can detect the conflict

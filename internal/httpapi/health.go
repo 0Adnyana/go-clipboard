@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/0adnyana/go-clipboard/internal/clips"
 	"github.com/0adnyana/go-clipboard/internal/database"
 	"github.com/0adnyana/go-clipboard/internal/db"
 	appmigrate "github.com/0adnyana/go-clipboard/internal/migrate"
@@ -18,9 +19,10 @@ type MigrationChecker interface {
 }
 
 type Dependencies struct {
-	Pool       *database.Pool
-	Migrations MigrationChecker
-	Queries    db.Querier
+	Pool        *database.Pool
+	Migrations  MigrationChecker
+	Queries     db.Querier
+	ClipService *clips.Service
 }
 
 type DatabaseHealth struct {

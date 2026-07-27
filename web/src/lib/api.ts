@@ -12,6 +12,17 @@ export type HealthResponse = {
   serverTime?: string
 }
 
+export type CreateClipResponse = {
+  slug: string
+  expiresAt: string
+}
+
+export type ReadClipResponse = {
+  slug: string
+  body: string
+  expiresAt: string
+}
+
 export class ApiError extends Error {
   readonly status: number
   readonly code?: string
@@ -29,24 +40,47 @@ function apiUrl(path: string): string {
   return `/api${normalized}`
 }
 
-export async function fetchHealth(): Promise<HealthResponse> {
-  const response = await fetch(apiUrl("/health"))
-
-  let body: unknown
+async function parseJsonResponse(response: Response): Promise<unknown> {
   try {
-    body = await response.json()
+    return await response.json()
   } catch {
     throw new ApiError("Response body was not valid JSON", response.status)
   }
+}
 
-  if (!response.ok) {
-    const errorBody = body as { code?: string; message?: string }
-    throw new ApiError(
-      errorBody.message ?? "Request failed",
-      response.status,
-      errorBody.code,
-    )
+function throwIfError(response: Response, body: unknown): void {
+  if (response.ok) {
+    return
   }
+  const errorBody = body as { code?: string; message?: string }
+  throw new ApiError(
+    errorBody.message ?? "Request failed",
+    response.status,
+    errorBody.code,
+  )
+}
 
+export async function fetchHealth(): Promise<HealthResponse> {
+  const response = await fetch(apiUrl("/health"))
+  const body = await parseJsonResponse(response)
+  throwIfError(response, body)
   return body as HealthResponse
+}
+
+export async function createClip(slug: string, body: string): Promise<CreateClipResponse> {
+  const response = await fetch(apiUrl("/clips"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ slug, body }),
+  })
+  const payload = await parseJsonResponse(response)
+  throwIfError(response, payload)
+  return payload as CreateClipResponse
+}
+
+export async function readClip(slug: string): Promise<ReadClipResponse> {
+  const response = await fetch(apiUrl(`/clips/${encodeURIComponent(slug)}`))
+  const payload = await parseJsonResponse(response)
+  throwIfError(response, payload)
+  return payload as ReadClipResponse
 }

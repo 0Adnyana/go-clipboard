@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The frontend application — TanStack Router with a `/$slug` catch-all reflecting the user-owned URL namespace, relative-path API access through the shared origin, and a status view that surfaces backend and database state.
+The frontend application — TanStack Router with a `/$slug` catch-all reflecting the user-owned URL namespace, relative-path API access through the shared origin, a create form on `/`, clip read pages on `/$slug`, and a status view at `/status`.
 
 ## Requirements
 
@@ -32,17 +32,69 @@ The application SHALL use file-based routing with a root route, an index route, 
 #### Scenario: Index route renders at the origin root
 
 - **WHEN** the application is loaded at `/`
-- **THEN** the index route renders
+- **THEN** the index route renders the create form
 
 #### Scenario: Arbitrary top-level path is matched by the slug route
 
 - **WHEN** the application is loaded at `/some-user-key`
 - **THEN** the slug route renders with the segment available as a route parameter, rather than the application showing a not-found page
 
-#### Scenario: Slug route holds a placeholder in this change
+#### Scenario: Slug route performs clipboard read
 
-- **WHEN** the slug route renders
-- **THEN** it shows a placeholder view and performs no clipboard behaviour
+- **WHEN** the slug route renders for a path segment
+- **THEN** it attempts to load and display the live clip for that slug rather than showing a non-functional placeholder
+
+### Requirement: Index route is the create form
+
+The index route SHALL present a create form that accepts a name and a body, submits them through the shared API client, and on success navigates to the new clip's read URL. The form MUST include a plain-language note near the name field explaining that a guessable name is effectively a bulletin board and a hard-to-guess name is effectively a secret link.
+
+#### Scenario: Successful paste navigates to the clip
+
+- **WHEN** the user submits a valid name and body from the create form
+- **THEN** the client creates the clip via `/api/` and navigates to `/<slug>` using the slug returned by the API (case preserved)
+
+#### Scenario: Exposure note is visible before submit
+
+- **WHEN** the create form is shown
+- **THEN** a plain-language note near the name field describes the bulletin-board versus secret-link nature of the chosen name
+
+#### Scenario: In-use name is shown as such
+
+- **WHEN** create fails because the name is in use
+- **THEN** the form shows that the name is in use right now without implying who holds it
+
+### Requirement: Slug route is the read page with faithful copy
+
+The `/$slug` route SHALL load the live clip for its path parameter and display the body without trimming or re-wrapping the source for storage purposes. Wrapping, if any, is display-only. A single control MUST copy the source string returned by the API (or an equivalent in-memory copy of it), not text scraped from the DOM.
+
+#### Scenario: Live clip renders its body
+
+- **WHEN** the user opens `/notes` for a live clip
+- **THEN** the page shows the clip body with whitespace preserved visually enough to read, without altering the underlying source string
+
+#### Scenario: Copy uses the source string
+
+- **WHEN** the user activates the copy control
+- **THEN** the clipboard receives the exact source string from the API response, including trailing newlines and tabs
+
+#### Scenario: Missing clip is a not-found state
+
+- **WHEN** the user opens a slug with no live clip
+- **THEN** the page shows a not-found state rather than an empty body that looks like a blank paste
+
+### Requirement: Clip pages and robots exclude indexing
+
+The application SHALL serve a `robots.txt` that disallows all crawlers, and clip read pages SHALL carry a `noindex` robots meta directive so pasted content is not treated as a searchable corpus.
+
+#### Scenario: robots.txt disallows everything
+
+- **WHEN** `/robots.txt` is requested
+- **THEN** the response instructs crawlers to disallow all paths
+
+#### Scenario: Read page is marked noindex
+
+- **WHEN** a clip read page is rendered
+- **THEN** the document includes a robots meta directive that includes `noindex`
 
 ### Requirement: The generated route tree is committed
 

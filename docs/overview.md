@@ -34,7 +34,7 @@ reason for a decision here (it is why passkeys are set aside) as long as it is n
 
 | Feature | Slice | What it is |
 | --- | --- | --- |
-| Paste and read | [1](slices/01-paste-and-read.md) | Create form, read page at `/<slug>`, copy button, size cap, case-insensitive names |
+| Paste and read | [1](slices/01-paste-and-read.md) | Create form, read page at `/<slug>`, copy button, size cap, case-sensitive names |
 | Lifetime | [2](slices/02-lifetime-you-can-see.md) | User-chosen TTL, server-driven countdown, explicit extend bounded by the ceiling |
 | Anonymous rate limiting | [3](slices/03-rate-limiting.md) | IP-keyed limiter over anonymous creation and the availability hint, behind one interface later slices register into |
 | Deployment **(MVP)** | [4](slices/04-deployment.md) | Commit-tagged image, production Caddyfile, CI that ships what it tested, migrations as a step |

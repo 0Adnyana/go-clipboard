@@ -56,6 +56,85 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/clips:
+    post:
+      operationId: createClip
+      summary: Create a clip
+      description: |
+        Claim a slug with a text body. Returns 201 when the name is free or
+        expired. Live collisions return 409 with `slug_in_use`.
+      tags:
+        - clips
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClipRequest"
+            examples:
+              note:
+                summary: Simple note
+                value:
+                  slug: my-note
+                  body: "hello\nworld\n"
+      responses:
+        "201":
+          description: Clip created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateClipResponse"
+              example:
+                slug: my-note
+                expiresAt: "2026-07-27T09:00:00.000000000Z"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          description: Slug is held by a live clip
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: slug_in_use
+                message: that name is in use right now
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/clips/{slug}:
+    get:
+      operationId: getClip
+      summary: Read a live clip
+      description: |
+        Returns the stored body for a live clip. Missing and expired slugs both
+        return 404 with the same error shape.
+      tags:
+        - clips
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Exact slug string (case-sensitive)
+      responses:
+        "200":
+          description: Live clip
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadClipResponse"
+              example:
+                slug: my-note
+                body: "hello\nworld\n"
+                expiresAt: "2026-07-27T09:00:00.000000000Z"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
 components:
   schemas:
     HealthResponse:
@@ -115,6 +194,51 @@ components:
           type: string
           description: Human-readable message
 
+    CreateClipRequest:
+      type: object
+      required:
+        - slug
+        - body
+      properties:
+        slug:
+          type: string
+          minLength: 3
+          maxLength: 64
+          pattern: '^[a-zA-Z0-9_-]+$'
+          description: Case-sensitive clip name
+        body:
+          type: string
+          maxLength: 262144
+          description: UTF-8 text body (256 KiB max)
+
+    CreateClipResponse:
+      type: object
+      required:
+        - slug
+        - expiresAt
+      properties:
+        slug:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+          description: Fixed two-hour lease expiry as RFC3339Nano UTC
+
+    ReadClipResponse:
+      type: object
+      required:
+        - slug
+        - body
+        - expiresAt
+      properties:
+        slug:
+          type: string
+        body:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+
   responses:
     NotFound:
       description: Unknown path
@@ -140,3 +264,31 @@ components:
           example:
             code: method_not_allowed
             message: method not allowed
+
+    ValidationError:
+      description: Request failed validation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            invalidSlug:
+              summary: Invalid slug
+              value:
+                code: invalid_slug
+                message: slug must be 3–64 characters
+            reservedSlug:
+              summary: Reserved slug
+              value:
+                code: reserved_slug
+                message: that name is reserved
+            bodyTooLarge:
+              summary: Body too large
+              value:
+                code: body_too_large
+                message: clip body must be at most 256 KiB
+            invalidBody:
+              summary: Invalid JSON body
+              value:
+                code: invalid_body
+                message: request body must be valid JSON with slug and body fields
