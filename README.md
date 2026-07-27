@@ -50,6 +50,16 @@ make test        # Go tests + frontend typecheck
 make lint        # go vet + oxlint
 ```
 
+## API
+
+The HTTP contract lives in [`docs/api/openapi.yaml`](docs/api/openapi.yaml). Import that file into Postman (Import → OpenAPI), or call endpoints with curl against the Caddy origin:
+
+```bash
+curl -s http://localhost:3000/api/health | jq
+```
+
+Go serves only `/api/*`. Product intent stays in [`docs/slices/`](docs/slices/); grow the OpenAPI file in the same change as each new handler.
+
 ## Gotchas
 
 ### TanStack Router plugin order

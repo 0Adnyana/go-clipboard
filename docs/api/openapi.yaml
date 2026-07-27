@@ -1,0 +1,142 @@
+openapi: 3.1.0
+info:
+  title: go-clipboard API
+  version: 0.1.0
+  description: |
+    JSON API for go-clipboard. Go serves only `/api/*`; hit it through the
+    Caddy origin in development (`http://localhost:3000`), not the Go port
+    directly.
+
+    Product intent lives in `docs/slices/`. This file is the HTTP contract —
+    import it into Postman, or copy the examples into curl.
+
+servers:
+  - url: http://localhost:3000
+    description: Local development (Caddy origin)
+
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      summary: Stack health
+      description: |
+        Always returns HTTP 200 when the process can answer. Degraded
+        dependencies are reported in the body via `status`, not via the
+        status code. The `migrations` object is omitted when the pending
+        check could not run (for example when Postgres is unreachable).
+      tags:
+        - health
+      responses:
+        "200":
+          description: Health payload observed for this request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              examples:
+                ok:
+                  summary: Healthy stack
+                  value:
+                    status: ok
+                    database:
+                      reachable: true
+                      latencyMs: 1
+                    migrations:
+                      pending: false
+                      currentVersion: 1
+                    serverTime: "2026-07-27T07:00:00.000000000Z"
+                degraded:
+                  summary: Database unreachable
+                  value:
+                    status: degraded
+                    database:
+                      reachable: false
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - database
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+          description: Overall status derived from the checks that completed
+        database:
+          $ref: "#/components/schemas/DatabaseHealth"
+        migrations:
+          $ref: "#/components/schemas/MigrationHealth"
+          description: Present only when the pending-migration check completed
+        serverTime:
+          type: string
+          format: date-time
+          description: Postgres `now()` as RFC3339Nano UTC, when reachable
+
+    DatabaseHealth:
+      type: object
+      required:
+        - reachable
+      properties:
+        reachable:
+          type: boolean
+        latencyMs:
+          type: integer
+          format: int64
+          description: Round-trip latency in milliseconds when reachable
+
+    MigrationHealth:
+      type: object
+      required:
+        - pending
+        - currentVersion
+      properties:
+        pending:
+          type: boolean
+        currentVersion:
+          type: integer
+          format: int64
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code
+        message:
+          type: string
+          description: Human-readable message
+
+  responses:
+    NotFound:
+      description: Unknown path
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: not_found
+            message: resource not found
+
+    MethodNotAllowed:
+      description: Path exists but does not answer this method
+      headers:
+        Allow:
+          schema:
+            type: string
+          description: Comma-separated methods this path accepts
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: method_not_allowed
+            message: method not allowed

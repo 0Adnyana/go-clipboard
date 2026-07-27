@@ -42,6 +42,7 @@ web/dist/
 # Editor/IDE
 # .idea/
 # .vscode/
+.DS_Store
 
 # Archived OpenSpec changes
 openspec/changes/archive/
