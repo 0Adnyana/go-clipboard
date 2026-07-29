@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/0adnyana/go-clipboard/internal/clips"
 	"github.com/0adnyana/go-clipboard/internal/config"
 	"github.com/0adnyana/go-clipboard/internal/database"
 	"github.com/0adnyana/go-clipboard/internal/db"
@@ -84,13 +85,19 @@ func runServe(logger *slog.Logger) error {
 	}
 
 	queries := db.New(pool)
-	deps := httpapi.Dependencies{
-		Pool:       pool,
-		Migrations: migrations,
-		Queries:    queries,
-	}
+	clipSvc := clips.NewService(clips.NewPGStore(queries))
 
-	server := httpapi.NewServer(logger, deps)
+	server, err := httpapi.NewServer(logger, httpapi.Dependencies{
+		Clips: clipSvc,
+		Health: httpapi.HealthDependencies{
+			Pool:       pool,
+			Migrations: migrations,
+			Queries:    queries,
+		},
+	})
+	if err != nil {
+		return err
+	}
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	httpServer := &http.Server{
 		Addr:    addr,

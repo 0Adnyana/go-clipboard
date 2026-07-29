@@ -19,7 +19,11 @@ func newClipTestHandler(t *testing.T) http.Handler {
 	store := fake.NewStore()
 	svc := clips.NewService(store)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return NewServer(logger, Dependencies{ClipService: svc}).Handler()
+	srv, err := NewServer(logger, Dependencies{Clips: svc})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	return srv.Handler()
 }
 
 func postClip(handler http.Handler, slug, body string) *httptest.ResponseRecorder {

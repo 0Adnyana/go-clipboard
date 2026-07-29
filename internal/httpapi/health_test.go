@@ -42,7 +42,7 @@ func (f fakeMigrationChecker) CheckPending(ctx context.Context) (appmigrate.Stat
 
 func TestBuildHealthResponse_omitsServerTimeWhenDatabaseUnreachable(t *testing.T) {
 	when := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
-	resp := buildHealthResponse(context.Background(), Dependencies{
+	resp := buildHealthResponse(context.Background(), HealthDependencies{
 		Queries: fakeQuerier{
 			serverTime: pgtype.Timestamptz{Time: when, Valid: true},
 		},
@@ -54,7 +54,7 @@ func TestBuildHealthResponse_omitsServerTimeWhenDatabaseUnreachable(t *testing.T
 }
 
 func TestBuildHealthResponse_withoutPoolIsDegraded(t *testing.T) {
-	resp := buildHealthResponse(context.Background(), Dependencies{})
+	resp := buildHealthResponse(context.Background(), HealthDependencies{})
 	if resp.Status != "degraded" {
 		t.Fatalf("status = %q, want degraded", resp.Status)
 	}
@@ -64,7 +64,7 @@ func TestBuildHealthResponse_withoutPoolIsDegraded(t *testing.T) {
 }
 
 func TestBuildHealthResponse_omitsMigrationsWhenCheckCannotRun(t *testing.T) {
-	resp := buildHealthResponse(context.Background(), Dependencies{})
+	resp := buildHealthResponse(context.Background(), HealthDependencies{})
 
 	if resp.Migrations != nil {
 		t.Fatalf("migrations = %+v, want nil when the check cannot run", *resp.Migrations)
@@ -80,7 +80,7 @@ func TestBuildHealthResponse_omitsMigrationsWhenCheckCannotRun(t *testing.T) {
 }
 
 func TestBuildHealthResponse_reportsPendingMigrationsFromTheChecker(t *testing.T) {
-	resp := buildHealthResponse(context.Background(), Dependencies{
+	resp := buildHealthResponse(context.Background(), HealthDependencies{
 		Migrations: fakeMigrationChecker{
 			status: appmigrate.Status{Pending: true, CurrentVersion: 20260726130213},
 		},
@@ -98,7 +98,7 @@ func TestBuildHealthResponse_reportsPendingMigrationsFromTheChecker(t *testing.T
 }
 
 func TestBuildHealthResponse_omitsMigrationsWhenTheCheckerFails(t *testing.T) {
-	resp := buildHealthResponse(context.Background(), Dependencies{
+	resp := buildHealthResponse(context.Background(), HealthDependencies{
 		Migrations: fakeMigrationChecker{err: errors.New("database is unreachable")},
 	})
 

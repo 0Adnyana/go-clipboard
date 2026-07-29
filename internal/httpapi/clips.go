@@ -104,3 +104,10 @@ func writeClipError(w http.ResponseWriter, logger *slog.Logger, err error) {
 		writeInternalError(w, logger, err)
 	}
 }
+
+func clipRoutes(logger *slog.Logger, svc *clips.Service) []apiRoute {
+	return []apiRoute{
+		{http.MethodPost, "/api/clips", handleCreateClip(logger, svc)},
+		{http.MethodGet, "/api/clips/{slug}", handleReadClip(logger, svc)},
+	}
+}

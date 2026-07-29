@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/0adnyana/go-clipboard/internal/clips"
 	"github.com/0adnyana/go-clipboard/internal/database"
 	"github.com/0adnyana/go-clipboard/internal/db"
 	appmigrate "github.com/0adnyana/go-clipboard/internal/migrate"
@@ -18,11 +17,13 @@ type MigrationChecker interface {
 	CheckPending(ctx context.Context) (appmigrate.Status, error)
 }
 
-type Dependencies struct {
-	Pool        *database.Pool
-	Migrations  MigrationChecker
-	Queries     db.Querier
-	ClipService *clips.Service
+// HealthDependencies are genuinely optional: each absent field is reported as a
+// degraded check rather than refused, because the status page is most useful
+// exactly when part of the stack is down.
+type HealthDependencies struct {
+	Pool       *database.Pool
+	Migrations MigrationChecker
+	Queries    db.Querier
 }
 
 type DatabaseHealth struct {
@@ -45,7 +46,7 @@ type HealthResponse struct {
 	ServerTime *string          `json:"serverTime,omitempty"`
 }
 
-func buildHealthResponse(ctx context.Context, deps Dependencies) HealthResponse {
+func buildHealthResponse(ctx context.Context, deps HealthDependencies) HealthResponse {
 	resp := HealthResponse{
 		Status: "ok",
 		Database: DatabaseHealth{
@@ -94,10 +95,16 @@ func buildHealthResponse(ctx context.Context, deps Dependencies) HealthResponse 
 	return resp
 }
 
-func handleHealth(deps Dependencies) http.HandlerFunc {
+func handleHealth(deps HealthDependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		resp := buildHealthResponse(r.Context(), deps)
 		writeJSON(w, http.StatusOK, resp)
+	}
+}
+
+func healthRoutes(deps HealthDependencies) []apiRoute {
+	return []apiRoute{
+		{http.MethodGet, "/api/health", handleHealth(deps)},
 	}
 }
 
@@ -105,6 +112,12 @@ func handleNotFound(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotFound, "not_found", "resource not found")
 }
 
-func handleMethodNotAllowed(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+// handleMethodNotAllowed refuses a request whose path is registered but whose
+// method no route serves. The allow value is fixed at registration time from the
+// methods that path answers.
+func handleMethodNotAllowed(allow string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", allow)
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+	}
 }

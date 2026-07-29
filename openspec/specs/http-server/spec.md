@@ -3,9 +3,7 @@
 ## Purpose
 
 Server lifecycle — typed configuration from the environment, human-readable structured logging via `log/slog`, stdlib `net/http` routing, request-scoped middleware, consistent JSON error responses, and clean shutdown on signal so repeated `air` reloads do not leak ports or connections.
-
 ## Requirements
-
 ### Requirement: Typed configuration from the environment
 
 The server SHALL read all configuration from environment variables into a single typed configuration struct at startup, applying documented defaults for optional values. The server MUST NOT read or parse `.env` files itself.
@@ -48,6 +46,10 @@ The server SHALL log through `log/slog` using a handler that emits human-readabl
 
 The server SHALL serve application routes exclusively under the `/api/` path prefix using the standard library `net/http` router with method-qualified patterns. Outside `/api/` the server MAY register a single catch-all whose only behaviour is to return the standard JSON error response, so that a request arriving directly rather than through the proxy is refused in the server's own error format. That catch-all MUST NOT serve static assets, MUST NOT return an HTML document, and MUST NOT implement single-page-application fallback behaviour.
 
+The routing surface SHALL be a fixed property of the binary. The set of registered method-and-path pairs MUST NOT vary with the presence, absence, or nil-ness of any injected dependency, and MUST be identical whether the server is constructed by a test or by the production entrypoint. A missing dependency MUST NOT be expressed as an unregistered route.
+
+Whether a request's path is registered SHALL be decided by the same pattern matcher that resolved the registered routes, for every registered path including those carrying a path parameter. A path MUST NOT be reported as missing on the grounds that the concrete request path differs textually from the pattern that describes it.
+
 #### Scenario: Registered API route is served
 
 - **WHEN** a `GET /api/health` request reaches the server
@@ -67,6 +69,31 @@ The server SHALL serve application routes exclusively under the `/api/` path pre
 
 - **WHEN** a request for `/` or `/some-slug` reaches the server directly
 - **THEN** the server responds with its own standard not-found response and does not attempt to serve, generate, or fall back to any HTML document, and the response is identical in shape for every such path
+
+#### Scenario: Routing surface does not vary with how the server was constructed
+
+- **WHEN** a server built for a test and a server built by the production entrypoint are compared
+- **THEN** both expose the same set of method-and-path pairs, and the fallback resolves the same paths as registered for both
+
+#### Scenario: Every supported path is registered without a runtime condition
+
+- **WHEN** the server is constructed
+- **THEN** each API path the product exposes is registered unconditionally, so no supported path can answer with the unmatched-path 404
+
+#### Scenario: Wrong method on a supported path is a method problem, not a missing path
+
+- **WHEN** a `DELETE /api/clips` request reaches the server
+- **THEN** the server responds with HTTP 405 and an `Allow` header naming `POST`, rather than 404
+
+#### Scenario: Wrong method on a path carrying a path parameter is also a method problem
+
+- **WHEN** a `DELETE /api/clips/abc123` request reaches the server, where `/api/clips/{slug}` is registered for `GET`
+- **THEN** the server responds with HTTP 405 and an `Allow` header naming `GET, HEAD`, rather than 404, because the concrete path matches a registered pattern
+
+#### Scenario: A path deeper than any registered pattern is still unknown
+
+- **WHEN** a request reaches a path one segment below a registered pattern, such as `/api/clips/abc123/extra`
+- **THEN** the server responds with HTTP 404, because a path parameter matches a single segment and no registered pattern matches the request
 
 ### Requirement: Consistent JSON error responses
 
@@ -105,6 +132,8 @@ The server SHALL apply middleware written as `func(http.Handler) http.Handler`, 
 
 The server SHALL expose `GET /api/health` returning a JSON body that reports overall status, database reachability with an observed latency, and whether migrations are pending together with the current schema version. The endpoint SHALL return HTTP 200 whenever the process is able to answer, and MUST report degraded dependencies in the body rather than through the status code. Every value the body reports MUST have been observed: where a check could not complete, the endpoint MUST omit that check's state rather than emit a default that reads as a successful observation.
 
+The dependencies this endpoint observes — the connection pool, the migration checker, and the query handle — are the server's only optional dependencies. Each MAY be absent, and absence MUST be reported as a degraded check rather than prevent the server from starting. No other dependency may be treated as optional on the grounds that this one is.
+
 #### Scenario: Everything is wired up
 
 - **WHEN** the database is reachable and no migrations are pending
@@ -124,6 +153,11 @@ The server SHALL expose `GET /api/health` returning a JSON body that reports ove
 
 - **WHEN** the pending-migration check cannot complete, for example because the database is unreachable
 - **THEN** `GET /api/health` returns 200 with the overall status not healthy and reports no migration state at all, rather than reporting migrations as not pending at schema version zero
+
+#### Scenario: An absent health dependency does not prevent startup
+
+- **WHEN** the migration runner cannot be constructed at startup
+- **THEN** the process still starts and serves requests, and `GET /api/health` returns 200 reporting no migration state, rather than refusing to start
 
 ### Requirement: Graceful shutdown on signal
 
@@ -157,3 +191,28 @@ The `cmd/server` entrypoint SHALL select behaviour from its first command-line a
 
 - **WHEN** the binary is run with an unrecognised first argument
 - **THEN** it prints the available commands and exits with a non-zero status without starting the HTTP server
+
+### Requirement: Required dependencies are resolved before the server is built
+
+The process SHALL construct domain services in its entrypoint and pass them to the HTTP server as required dependencies. The server constructor MUST NOT assemble domain services or their storage adapters, and MUST NOT accept two different fields as alternate ways to supply the same capability. When a required dependency is absent, construction MUST fail with an error naming every missing dependency, and the process MUST log that failure and exit with a non-zero status rather than serve a reduced surface.
+
+#### Scenario: Missing required dependency is refused at construction
+
+- **WHEN** the HTTP server is constructed without a required domain service
+- **THEN** construction fails with an error naming the missing dependency and no server is returned
+
+#### Scenario: Every missing dependency is named at once
+
+- **WHEN** the HTTP server is constructed with more than one required dependency absent
+- **THEN** the reported error names all of them, so wiring is not repaired one restart at a time
+
+#### Scenario: Entrypoint exits rather than listening with a reduced surface
+
+- **WHEN** the process cannot supply a required dependency to the server
+- **THEN** it logs the failure and exits with a non-zero status without binding the listening port
+
+#### Scenario: Service assembly lives in the entrypoint
+
+- **WHEN** a domain service needs a database-backed store
+- **THEN** the entrypoint builds the store and the service and passes the service to the server, and the HTTP layer constructs neither
+
