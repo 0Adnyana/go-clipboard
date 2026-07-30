@@ -3,9 +3,7 @@
 ## Purpose
 
 Explicit, developer-invoked schema management — migrations applied only via the `migrate` subcommand, never implicitly, with pending migrations detectable without applying them.
-
 ## Requirements
-
 ### Requirement: Migrations apply only when explicitly invoked
 
 Schema changes SHALL be applied only by an explicit `migrate up` invocation of the server binary. Starting the HTTP server MUST NOT apply migrations under any configuration, and there MUST be no flag or environment variable that makes startup apply them.
@@ -127,3 +125,23 @@ A goose migration SHALL introduce the clips storage needed for paste-and-read, i
 
 - **WHEN** `migrate down` rolls back the clips migration
 - **THEN** the clips table is removed and a subsequent up can reapply it
+
+### Requirement: Clips table autovacuum is tuned by a reversible migration
+
+A goose migration SHALL tune autovacuum for the clips table so that its high insert-and-delete churn does not accumulate dead tuples faster than they are reclaimed. The migration MUST be applied only via the existing `migrate` commands, MUST include a real down migration that restores the table to default autovacuum behaviour, and MUST NOT run on server startup. It MUST NOT add or drop columns, because creation time and expiry already carry everything TTL requires.
+
+#### Scenario: Migrate up applies autovacuum settings
+
+- **WHEN** `migrate up` is run with the autovacuum-tuning migration pending
+- **THEN** the clips table carries the tuned autovacuum storage parameters and health reports migrations not pending
+
+#### Scenario: Migrate down restores defaults
+
+- **WHEN** `migrate down` rolls back the autovacuum-tuning migration
+- **THEN** the tuned parameters are removed so the table reverts to default autovacuum behaviour, and a subsequent up can reapply them
+
+#### Scenario: Autovacuum migration changes no columns
+
+- **WHEN** the autovacuum-tuning migration is applied
+- **THEN** the clips table's columns are unchanged and existing rows remain readable
+

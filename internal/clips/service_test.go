@@ -92,7 +92,7 @@ func TestCreate_reclaimsExpiredSlug(t *testing.T) {
 		t.Fatalf("first Create() = %v", err)
 	}
 
-	now = now.Add(clips.Lease + time.Minute)
+	now = now.Add(clips.DefaultPreset + time.Minute)
 	store.SetNow(func() time.Time { return now })
 	svc.SetNow(func() time.Time { return now })
 
@@ -216,7 +216,7 @@ func TestRead_missingAndExpiredSameError(t *testing.T) {
 		t.Fatalf("Create() = %v", err)
 	}
 
-	expired := fixedNow().Add(clips.Lease + time.Second)
+	expired := fixedNow().Add(clips.DefaultPreset + time.Second)
 	store.SetNow(func() time.Time { return expired })
 	svc.SetNow(func() time.Time { return expired })
 
@@ -253,8 +253,160 @@ func TestCreate_setsTwoHourExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() = %v", err)
 	}
-	want := now.Add(clips.Lease)
+	want := now.Add(clips.DefaultPreset)
 	if !result.ExpiresAt.Equal(want) {
 		t.Fatalf("ExpiresAt = %v, want %v", result.ExpiresAt, want)
+	}
+}
+
+func TestCreate_eachPresetAnchorsExpiry(t *testing.T) {
+	cases := []struct {
+		name string
+		ttl  time.Duration
+	}{
+		{"10m", clips.Preset10m},
+		{"1h", clips.Preset1h},
+		{"2h", clips.Preset2h},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _ := newTestService()
+			now := fixedNow()
+
+			result, err := svc.Create(context.Background(), clips.CreateInput{
+				Slug: "preset-" + tc.name,
+				Body: "x",
+				TTL:  tc.ttl,
+			})
+			if err != nil {
+				t.Fatalf("Create() = %v", err)
+			}
+			want := now.Add(tc.ttl)
+			if !result.ExpiresAt.Equal(want) {
+				t.Fatalf("ExpiresAt = %v, want %v", result.ExpiresAt, want)
+			}
+		})
+	}
+}
+
+func TestCreate_rejectsInvalidTTL(t *testing.T) {
+	svc, _ := newTestService()
+	_, err := svc.Create(context.Background(), clips.CreateInput{
+		Slug: "bad-ttl",
+		Body: "x",
+		TTL:  30 * time.Minute,
+	})
+	if !errors.Is(err, clips.ErrInvalidTTL) {
+		t.Fatalf("Create() = %v, want ErrInvalidTTL", err)
+	}
+}
+
+func TestCreate_liveReclaimDoesNotResetExpiry(t *testing.T) {
+	store := fake.NewStore()
+	now := fixedNow()
+	store.SetNow(func() time.Time { return now })
+	svc := clips.NewService(store)
+	svc.SetNow(func() time.Time { return now })
+
+	ctx := context.Background()
+	first, err := svc.Create(ctx, clips.CreateInput{Slug: "reuse", Body: "old", TTL: clips.Preset10m})
+	if err != nil {
+		t.Fatalf("first Create() = %v", err)
+	}
+
+	now = now.Add(clips.Preset10m + time.Minute)
+	store.SetNow(func() time.Time { return now })
+	svc.SetNow(func() time.Time { return now })
+
+	second, err := svc.Create(ctx, clips.CreateInput{Slug: "reuse", Body: "new", TTL: clips.Preset1h})
+	if err != nil {
+		t.Fatalf("reclaim Create() = %v", err)
+	}
+	if second.ExpiresAt.Equal(first.ExpiresAt) {
+		t.Fatalf("reclaim reused old expiry %v", second.ExpiresAt)
+	}
+	want := now.Add(clips.Preset1h)
+	if !second.ExpiresAt.Equal(want) {
+		t.Fatalf("ExpiresAt = %v, want %v", second.ExpiresAt, want)
+	}
+}
+
+func TestAvailability_freeName(t *testing.T) {
+	svc, _ := newTestService()
+	available, err := svc.Availability(context.Background(), "free-name")
+	if err != nil {
+		t.Fatalf("Availability() = %v", err)
+	}
+	if !available {
+		t.Fatal("available = false, want true")
+	}
+}
+
+func TestAvailability_liveName(t *testing.T) {
+	svc, _ := newTestService()
+	ctx := context.Background()
+	_, err := svc.Create(ctx, clips.CreateInput{Slug: "taken", Body: "x"})
+	if err != nil {
+		t.Fatalf("Create() = %v", err)
+	}
+
+	available, err := svc.Availability(ctx, "taken")
+	if err != nil {
+		t.Fatalf("Availability() = %v", err)
+	}
+	if available {
+		t.Fatal("available = true, want false")
+	}
+}
+
+func TestAvailability_invalidSlug(t *testing.T) {
+	svc, _ := newTestService()
+	_, err := svc.Availability(context.Background(), "ab")
+	var ve *slug.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("Availability() = %v, want ValidationError", err)
+	}
+}
+
+func TestAvailability_reservedSlug(t *testing.T) {
+	svc, _ := newTestService()
+	_, err := svc.Availability(context.Background(), slug.Reserved[0])
+	var ve *slug.ValidationError
+	if !errors.As(err, &ve) || ve.Code != "reserved_slug" {
+		t.Fatalf("Availability() = %v, want reserved_slug", err)
+	}
+}
+
+func TestAvailability_doesNotMutateState(t *testing.T) {
+	svc, _ := newTestService()
+	ctx := context.Background()
+
+	available, err := svc.Availability(ctx, "race-name")
+	if err != nil || !available {
+		t.Fatalf("Availability() = %v, %v", available, err)
+	}
+
+	const workers = 4
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	results := make(chan error, workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			_, err := svc.Create(ctx, clips.CreateInput{Slug: "race-name", Body: "payload"})
+			results <- err
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	var wins int
+	for err := range results {
+		if err == nil {
+			wins++
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("wins = %d, want 1", wins)
 	}
 }

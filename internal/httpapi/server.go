@@ -50,7 +50,7 @@ func NewServer(logger *slog.Logger, deps Dependencies) (*Server, error) {
 	mux := http.NewServeMux()
 
 	routes := healthRoutes(deps.Health)
-	routes = append(routes, clipRoutes(logger, deps.Clips)...)
+	routes = append(routes, clipRoutes(logger, deps.Clips, deps.Health)...)
 
 	allowed := make(map[string][]string, len(routes))
 	for _, route := range routes {

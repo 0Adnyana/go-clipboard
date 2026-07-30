@@ -3,9 +3,7 @@
 ## Purpose
 
 The frontend application — TanStack Router with a `/$slug` catch-all reflecting the user-owned URL namespace, relative-path API access through the shared origin, a create form on `/`, clip read pages on `/$slug`, and a status view at `/status`.
-
 ## Requirements
-
 ### Requirement: The dev server runs on a pinned port behind the proxy
 
 The frontend dev server SHALL be configured to listen on a fixed port and to fail startup rather than move to another port when that port is occupied. It MUST NOT define its own API proxying, and MUST NOT open a browser window automatically, because the proxy origin is the supported entry point.
@@ -46,17 +44,27 @@ The application SHALL use file-based routing with a root route, an index route, 
 
 ### Requirement: Index route is the create form
 
-The index route SHALL present a create form that accepts a name and a body, submits them through the shared API client, and on success navigates to the new clip's read URL. The form MUST include a plain-language note near the name field explaining that a guessable name is effectively a bulletin board and a hard-to-guess name is effectively a secret link.
+The index route SHALL present a create form that accepts a name, a body, and a chosen lifetime, submits them through the shared API client, and on success navigates to the new clip's read URL. The form MUST include a plain-language note near the name field explaining that a guessable name is effectively a bulletin board and a hard-to-guess name is effectively a secret link. The lifetime control SHALL offer the preset set (leaning 10 minutes / 1 hour / 2 hours), default to the documented default preset, and be framed as *the anonymous limit* rather than *the* limit, so longer signed-in presets can be added later without rewording. The form SHALL show an advisory availability hint near the name field as the user types, making clear the hint is advisory and does not reserve the name.
 
 #### Scenario: Successful paste navigates to the clip
 
-- **WHEN** the user submits a valid name and body from the create form
+- **WHEN** the user submits a valid name, body, and lifetime from the create form
 - **THEN** the client creates the clip via `/api/` and navigates to `/<slug>` using the slug returned by the API (case preserved)
 
 #### Scenario: Exposure note is visible before submit
 
 - **WHEN** the create form is shown
 - **THEN** a plain-language note near the name field describes the bulletin-board versus secret-link nature of the chosen name
+
+#### Scenario: Lifetime presets are shown and framed as the anonymous limit
+
+- **WHEN** the create form is shown
+- **THEN** the lifetime presets are selectable, one is preselected as the default, and the copy frames the ceiling as the anonymous limit rather than an absolute limit
+
+#### Scenario: Availability hint is advisory
+
+- **WHEN** the user types a name that is currently taken
+- **THEN** the form shows an advisory hint that the name looks unavailable, without blocking submission and without claiming the name, and a later create still surfaces an authoritative in-use error if it loses the race
 
 #### Scenario: In-use name is shown as such
 
@@ -65,7 +73,7 @@ The index route SHALL present a create form that accepts a name and a body, subm
 
 ### Requirement: Slug route is the read page with faithful copy
 
-The `/$slug` route SHALL load the live clip for its path parameter and display the body without trimming or re-wrapping the source for storage purposes. Wrapping, if any, is display-only. A single control MUST copy the source string returned by the API (or an equivalent in-memory copy of it), not text scraped from the DOM.
+The `/$slug` route SHALL load the live clip for its path parameter and display the body without trimming or re-wrapping the source for storage purposes. Wrapping, if any, is display-only. A single control MUST copy the source string returned by the API (or an equivalent in-memory copy of it), not text scraped from the DOM. The read page SHALL show a live countdown to expiry driven by the server's reported expiry and current time rather than a timer started at page load, and transition to a distinct expired state when the countdown reaches zero.
 
 #### Scenario: Live clip renders its body
 
@@ -76,6 +84,16 @@ The `/$slug` route SHALL load the live clip for its path parameter and display t
 
 - **WHEN** the user activates the copy control
 - **THEN** the clipboard receives the exact source string from the API response, including trailing newlines and tabs
+
+#### Scenario: Countdown is driven by the server's expiry
+
+- **WHEN** a live clip is opened and time passes on the page
+- **THEN** the displayed remaining time ticks down toward the server's expiry, computed against the server's clock so a skewed browser clock does not make the countdown wrong, rather than counting down from a duration fixed at page load
+
+#### Scenario: Expired clip shows a distinct expired state
+
+- **WHEN** the countdown reaches zero, or the clip is already expired on load
+- **THEN** the page shows a clearly distinguished expired state rather than a blank body or a stuck countdown
 
 #### Scenario: Missing clip is a not-found state
 
@@ -203,3 +221,4 @@ The frontend `package.json` SHALL pin exact versions for its dependencies, so th
 
 - **WHEN** `package.json` is inspected
 - **THEN** dependency versions are exact rather than range specifiers
+

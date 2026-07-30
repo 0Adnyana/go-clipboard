@@ -3,9 +3,7 @@
 ## Purpose
 
 Database access — pooled connections, startup connectivity verification, and a generated type-safe query layer exposed behind an interface for testing.
-
 ## Requirements
-
 ### Requirement: A single pooled database connection
 
 The application SHALL create exactly one `pgxpool` connection pool from `DATABASE_URL` at startup and share it across all database consumers. The application MUST NOT open a second pool or a second connection string for any purpose.
@@ -131,3 +129,27 @@ The query set SHALL support reading a live clip by exact slug and claiming a slu
 
 - **WHEN** a claim query runs for a slug with `expires_at` still in the future
 - **THEN** no overwrite occurs and the caller can detect the conflict
+
+### Requirement: Sweep and availability are expressible in SQL
+
+The query set SHALL support deleting all expired rows in one statement for the sweeper, and testing whether a slug currently has a live row for the availability check. These queries MUST be expressed in `db/queries` and consumed only through the generated `Querier` interface; handlers and services MUST NOT embed ad-hoc SQL for sweep or availability.
+
+#### Scenario: Sweep deletes only expired rows
+
+- **WHEN** the delete-expired query runs
+- **THEN** every row with an expiry in the past is removed and no live row is touched
+
+#### Scenario: Availability lookup ignores expired rows
+
+- **WHEN** the availability query runs for a slug whose only row is expired
+- **THEN** it reports the slug as having no live row
+
+### Requirement: Service logic for sweep and availability is unit-testable with a fake
+
+The service methods for sweep and availability SHALL depend on the generated `Querier` interface so their advisory and expired-only behaviour can be exercised with an in-memory fake and no Postgres.
+
+#### Scenario: Availability is tested without a database
+
+- **WHEN** unit tests exercise availability against free, live, and expired slugs
+- **THEN** they substitute an in-memory `Querier` and assert the advisory result without Postgres
+

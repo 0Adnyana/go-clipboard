@@ -1,27 +1,21 @@
-export type HealthResponse = {
-  status: string
-  database: {
-    reachable: boolean
-    latencyMs?: number
-  }
-  // Absent when the server could not run the pending-migration check.
-  migrations?: {
-    pending: boolean
-    currentVersion: number
-  }
-  serverTime?: string
-}
+export type { components } from "@/lib/api.gen"
 
-export type CreateClipResponse = {
-  slug: string
-  expiresAt: string
-}
+import type { components } from "@/lib/api.gen"
 
-export type ReadClipResponse = {
-  slug: string
-  body: string
-  expiresAt: string
-}
+export type HealthResponse = components["schemas"]["HealthResponse"]
+export type CreateClipResponse = components["schemas"]["CreateClipResponse"]
+export type ReadClipResponse = components["schemas"]["ReadClipResponse"]
+export type ClipAvailabilityResponse = components["schemas"]["ClipAvailabilityResponse"]
+
+export type TtlSeconds = NonNullable<components["schemas"]["CreateClipRequest"]["ttlSeconds"]>
+
+export const TTL_PRESETS: { label: string; seconds: TtlSeconds; description: string }[] = [
+  { label: "10 minutes", seconds: 600, description: "Good for passwords and one-time secrets" },
+  { label: "1 hour", seconds: 3600, description: "Short-lived notes and links" },
+  { label: "2 hours", seconds: 7200, description: "The anonymous limit — longest without signing in" },
+]
+
+export const DEFAULT_TTL_SECONDS: TtlSeconds = 7200
 
 export class ApiError extends Error {
   readonly status: number
@@ -67,11 +61,15 @@ export async function fetchHealth(): Promise<HealthResponse> {
   return body as HealthResponse
 }
 
-export async function createClip(slug: string, body: string): Promise<CreateClipResponse> {
+export async function createClip(
+  slug: string,
+  body: string,
+  ttlSeconds: TtlSeconds = DEFAULT_TTL_SECONDS,
+): Promise<CreateClipResponse> {
   const response = await fetch(apiUrl("/clips"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ slug, body }),
+    body: JSON.stringify({ slug, body, ttlSeconds }),
   })
   const payload = await parseJsonResponse(response)
   throwIfError(response, payload)
@@ -83,4 +81,11 @@ export async function readClip(slug: string): Promise<ReadClipResponse> {
   const payload = await parseJsonResponse(response)
   throwIfError(response, payload)
   return payload as ReadClipResponse
+}
+
+export async function checkAvailability(slug: string): Promise<ClipAvailabilityResponse> {
+  const response = await fetch(apiUrl(`/clips/${encodeURIComponent(slug)}/availability`))
+  const payload = await parseJsonResponse(response)
+  throwIfError(response, payload)
+  return payload as ClipAvailabilityResponse
 }

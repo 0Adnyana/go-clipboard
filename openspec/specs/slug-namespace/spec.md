@@ -3,9 +3,7 @@
 ## Purpose
 
 Shared rules for clip names — case-sensitive matching, charset and length bounds, and a single reserved-name list so app routes are never claimable as clips.
-
 ## Requirements
-
 ### Requirement: Slug charset and length bounds
 
 A claimable slug SHALL consist only of ASCII letters, digits, underscore, and hyphen (`[a-zA-Z0-9_-]`), with length between 3 and 64 characters inclusive. Names outside that charset or length MUST be rejected at create time with a validation error. One- and two-character names MUST NOT be claimable.
@@ -57,3 +55,23 @@ The system SHALL maintain a single reserved-name list of top-level path segments
 
 - **WHEN** a new top-level application page is introduced in a later change
 - **THEN** its segment is added to the same reserved-name list consulted by create, not to a second ad-hoc list
+
+### Requirement: Availability honours the shared namespace rules
+
+The advisory availability check SHALL apply exactly the same charset, length, and reserved-name rules that gate create, drawing the reserved list from the single shared source. A name that fails validation or matches the reserved list MUST NOT be reported as available, so the hint can never invite a user to compose a body under a name that create would refuse.
+
+#### Scenario: Reserved name is never advertised as available
+
+- **WHEN** availability is checked for a name on the reserved list
+- **THEN** the result is unavailable (or a validation error), never available
+
+#### Scenario: Malformed name is never advertised as available
+
+- **WHEN** availability is checked for a name outside the `[a-zA-Z0-9_-]` charset or the 3–64 length bounds
+- **THEN** the result is unavailable (or a validation error), consistent with what create would return for the same name
+
+#### Scenario: Availability and create share one reserved list
+
+- **WHEN** the reserved list gains a new entry
+- **THEN** both create and the availability check refuse that name without a second list being maintained
+

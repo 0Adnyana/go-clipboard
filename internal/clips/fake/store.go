@@ -90,3 +90,31 @@ func (s *Store) GetLiveClip(ctx context.Context, slug string) (*clips.Clip, erro
 		ExpiresAt: existing.expiresAt,
 	}, nil
 }
+
+func (s *Store) DeleteExpiredClips(ctx context.Context) (int64, error) {
+	_ = ctx
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.now()
+	var deleted int64
+	for slug, clip := range s.clips {
+		if !clip.expiresAt.After(now) {
+			delete(s.clips, slug)
+			deleted++
+		}
+	}
+	return deleted, nil
+}
+
+func (s *Store) SlugIsLive(ctx context.Context, slug string) (bool, error) {
+	_ = ctx
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, ok := s.clips[slug]
+	if !ok {
+		return false, nil
+	}
+	return existing.expiresAt.After(s.now()), nil
+}

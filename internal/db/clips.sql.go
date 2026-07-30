@@ -46,6 +46,19 @@ func (q *Queries) ClaimClip(ctx context.Context, arg ClaimClipParams) (Clip, err
 	return i, err
 }
 
+const deleteExpiredClips = `-- name: DeleteExpiredClips :execrows
+DELETE FROM clips
+WHERE expires_at <= now()
+`
+
+func (q *Queries) DeleteExpiredClips(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredClips)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getLiveClip = `-- name: GetLiveClip :one
 SELECT slug, body, created_at, expires_at
 FROM clips
@@ -64,4 +77,20 @@ func (q *Queries) GetLiveClip(ctx context.Context, slug string) (Clip, error) {
 		&i.ExpiresAt,
 	)
 	return i, err
+}
+
+const slugIsLive = `-- name: SlugIsLive :one
+SELECT EXISTS(
+    SELECT 1
+    FROM clips
+    WHERE slug = $1
+      AND expires_at > now()
+) AS live
+`
+
+func (q *Queries) SlugIsLive(ctx context.Context, slug string) (bool, error) {
+	row := q.db.QueryRow(ctx, slugIsLive, slug)
+	var live bool
+	err := row.Scan(&live)
+	return live, err
 }

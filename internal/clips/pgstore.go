@@ -52,6 +52,14 @@ func (s *PGStore) GetLiveClip(ctx context.Context, slug string) (*Clip, error) {
 	return clipFromRow(row), nil
 }
 
+func (s *PGStore) DeleteExpiredClips(ctx context.Context) (int64, error) {
+	return s.queries.DeleteExpiredClips(ctx)
+}
+
+func (s *PGStore) SlugIsLive(ctx context.Context, slug string) (bool, error) {
+	return s.queries.SlugIsLive(ctx, slug)
+}
+
 func clipFromRow(row db.Clip) *Clip {
 	return &Clip{
 		Slug:      row.Slug,

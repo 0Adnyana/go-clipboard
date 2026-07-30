@@ -73,10 +73,16 @@ paths:
               $ref: "#/components/schemas/CreateClipRequest"
             examples:
               note:
-                summary: Simple note
+                summary: Simple note (default lifetime)
                 value:
                   slug: my-note
                   body: "hello\nworld\n"
+              shortLived:
+                summary: Ten-minute clip
+                value:
+                  slug: secret-link
+                  body: "temporary password"
+                  ttlSeconds: 600
       responses:
         "201":
           description: Clip created
@@ -130,6 +136,49 @@ paths:
                 slug: my-note
                 body: "hello\nworld\n"
                 expiresAt: "2026-07-27T09:00:00.000000000Z"
+                serverTime: "2026-07-27T07:00:00.000000000Z"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /api/clips/{slug}/availability:
+    get:
+      operationId: getClipAvailability
+      summary: Check whether a slug looks claimable
+      description: |
+        Advisory read-only check: reports whether a name currently appears free.
+        Does not reserve the name. Invalid or reserved slugs return the same
+        validation error shape as create.
+      tags:
+        - clips
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Exact slug string (case-sensitive)
+      responses:
+        "200":
+          description: Availability result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClipAvailabilityResponse"
+              examples:
+                available:
+                  summary: Name looks free
+                  value:
+                    slug: my-note
+                    available: true
+                taken:
+                  summary: Live clip holds the name
+                  value:
+                    slug: my-note
+                    available: false
+        "400":
+          $ref: "#/components/responses/ValidationError"
         "404":
           $ref: "#/components/responses/NotFound"
         "405":
@@ -210,6 +259,13 @@ components:
           type: string
           maxLength: 262144
           description: UTF-8 text body (256 KiB max)
+        ttlSeconds:
+          type: integer
+          format: int64
+          enum: [600, 3600, 7200]
+          description: |
+            Chosen lifetime in seconds from the anonymous preset set (10 minutes,
+            1 hour, or 2 hours). Omitted values use the default preset (2 hours).
 
     CreateClipResponse:
       type: object
@@ -222,7 +278,7 @@ components:
         expiresAt:
           type: string
           format: date-time
-          description: Fixed two-hour lease expiry as RFC3339Nano UTC
+          description: Expiry anchored to creation time as RFC3339Nano UTC
 
     ReadClipResponse:
       type: object
@@ -230,6 +286,7 @@ components:
         - slug
         - body
         - expiresAt
+        - serverTime
       properties:
         slug:
           type: string
@@ -238,6 +295,22 @@ components:
         expiresAt:
           type: string
           format: date-time
+        serverTime:
+          type: string
+          format: date-time
+          description: Server clock at response time as RFC3339Nano UTC
+
+    ClipAvailabilityResponse:
+      type: object
+      required:
+        - slug
+        - available
+      properties:
+        slug:
+          type: string
+        available:
+          type: boolean
+          description: True when the slug passes validation and has no live clip
 
   responses:
     NotFound:
@@ -292,3 +365,8 @@ components:
               value:
                 code: invalid_body
                 message: request body must be valid JSON with slug and body fields
+            invalidTTL:
+              summary: Lifetime not in preset set
+              value:
+                code: invalid_ttl
+                message: lifetime must be 10 minutes, 1 hour, or 2 hours

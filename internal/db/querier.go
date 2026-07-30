@@ -12,8 +12,10 @@ import (
 
 type Querier interface {
 	ClaimClip(ctx context.Context, arg ClaimClipParams) (Clip, error)
+	DeleteExpiredClips(ctx context.Context) (int64, error)
 	GetLiveClip(ctx context.Context, slug string) (Clip, error)
 	ServerTime(ctx context.Context) (pgtype.Timestamptz, error)
+	SlugIsLive(ctx context.Context, slug string) (bool, error)
 }
 
 var _ Querier = (*Queries)(nil)

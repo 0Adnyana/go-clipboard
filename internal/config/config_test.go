@@ -3,12 +3,14 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadFromEnv_defaults(t *testing.T) {
 	t.Setenv(envDatabaseURL, "postgres://localhost/test")
 	t.Setenv(envPort, "")
 	t.Setenv(envMigrationsDir, "")
+	t.Setenv(envSweepInterval, "")
 
 	cfg, err := LoadFromEnv()
 	if err != nil {
@@ -19,6 +21,9 @@ func TestLoadFromEnv_defaults(t *testing.T) {
 	}
 	if cfg.MigrationsDir != defaultMigrationsDir {
 		t.Errorf("MigrationsDir = %q, want %q", cfg.MigrationsDir, defaultMigrationsDir)
+	}
+	if cfg.SweepInterval != defaultSweepInterval {
+		t.Errorf("SweepInterval = %v, want %v", cfg.SweepInterval, defaultSweepInterval)
 	}
 }
 
@@ -62,5 +67,31 @@ func TestLoadFromEnv_malformedPort(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), envPort) {
 		t.Errorf("error = %q, want it to name %s", err.Error(), envPort)
+	}
+}
+
+func TestLoadFromEnv_sweepInterval(t *testing.T) {
+	t.Setenv(envDatabaseURL, "postgres://localhost/test")
+	t.Setenv(envSweepInterval, "30s")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv() error = %v", err)
+	}
+	if cfg.SweepInterval != 30*time.Second {
+		t.Errorf("SweepInterval = %v, want 30s", cfg.SweepInterval)
+	}
+}
+
+func TestLoadFromEnv_malformedSweepInterval(t *testing.T) {
+	t.Setenv(envDatabaseURL, "postgres://localhost/test")
+	t.Setenv(envSweepInterval, "nope")
+
+	_, err := LoadFromEnv()
+	if err == nil {
+		t.Fatal("LoadFromEnv() expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), envSweepInterval) {
+		t.Errorf("error = %q, want it to name %s", err.Error(), envSweepInterval)
 	}
 }

@@ -31,6 +31,14 @@ func (f fakeQuerier) GetLiveClip(ctx context.Context, slug string) (db.Clip, err
 	return db.Clip{}, errors.New("not implemented")
 }
 
+func (f fakeQuerier) DeleteExpiredClips(ctx context.Context) (int64, error) {
+	return 0, errors.New("not implemented")
+}
+
+func (f fakeQuerier) SlugIsLive(ctx context.Context, slug string) (bool, error) {
+	return false, errors.New("not implemented")
+}
+
 type fakeMigrationChecker struct {
 	status appmigrate.Status
 	err    error

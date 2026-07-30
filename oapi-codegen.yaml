@@ -1,0 +1,8 @@
+# Generates Go request/response models and a std net/http ServerInterface from
+# the OpenAPI contract. The generated file is authoritative — never edit it by
+# hand; change docs/api/openapi.yaml and run `make generate-openapi-go`.
+package: openapi
+output: internal/openapi/openapi.gen.go
+generate:
+  models: true
+  std-http-server: true

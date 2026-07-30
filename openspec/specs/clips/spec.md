@@ -3,22 +3,30 @@
 ## Purpose
 
 Anonymous paste and read — create a clip under a name with a fixed two-hour lease, read it back by exact slug over `/api/*`, with exact body round-trip and atomic flat-pool claim.
-
 ## Requirements
-
 ### Requirement: Create a clip under a name
 
-The system SHALL accept an unauthenticated create request carrying a slug and a text body, persist the clip with a fixed anonymous lifetime of two hours from creation time, and return a success response that includes the slug exactly as stored and expiry. Creation MUST NOT require an account, a session, or a client-chosen lifetime.
+The system SHALL accept an unauthenticated create request carrying a slug, a text body, and a chosen lifetime drawn from a fixed preset set, persist the clip with its expiry anchored absolutely to creation time (`expires_at = created_at + ttl`), and return a success response that includes the slug exactly as stored and the resulting expiry. Creation MUST NOT require an account or a session. Every preset offered to anonymous callers MUST be within the permanent two-hour anonymous ceiling, and a request that omits a lifetime MUST fall back to a documented default preset. A request carrying a lifetime outside the accepted preset set MUST be rejected with a validation error.
 
-#### Scenario: Successful create
+#### Scenario: Successful create with a chosen preset
 
-- **WHEN** a valid create request is submitted for a free slug with a body within the size cap
-- **THEN** the clip is stored, the response indicates success, and the returned slug matches the requested name character-for-character (case preserved)
+- **WHEN** a valid create request is submitted for a free slug, with a body within the size cap and a lifetime from the preset set
+- **THEN** the clip is stored, the response indicates success, the returned slug matches the requested name character-for-character (case preserved), and the returned expiry equals creation time plus the chosen preset
 
-#### Scenario: Lifetime is fixed at two hours
+#### Scenario: Lifetime is anchored absolutely to creation
 
-- **WHEN** a clip is created
-- **THEN** its expiry is exactly two hours after creation, with no client-supplied TTL accepted or echoed as a choice
+- **WHEN** a clip is created with a chosen lifetime
+- **THEN** its expiry is exactly that lifetime after creation time, and no later read, poll, or overwrite of a still-live clip moves that expiry (no sliding TTL, no reset-on-write)
+
+#### Scenario: Omitted lifetime uses the default preset
+
+- **WHEN** a create request does not specify a lifetime
+- **THEN** the clip is stored with the documented default preset applied and its expiry reflects that default
+
+#### Scenario: Out-of-range lifetime is rejected
+
+- **WHEN** a create request specifies a lifetime that is not one of the accepted presets, or that exceeds the two-hour anonymous ceiling
+- **THEN** the server responds with a validation error and stores nothing
 
 ### Requirement: Read a live clip by slug
 
@@ -88,14 +96,48 @@ Claiming a slug SHALL be a single atomic operation that succeeds only when no li
 
 ### Requirement: Clip HTTP API and OpenAPI stay aligned
 
-Clip create and read SHALL be exposed under `/api/*` as JSON, and `docs/api/openapi.yaml` MUST document those operations, schemas, and error codes in the same change as the handlers so Postman import and curl examples match the running server.
+Clip create, read, and availability SHALL be exposed under `/api/*` as JSON, and `docs/api/openapi.yaml` MUST document those operations, schemas, and error codes in the same change as the handlers so Postman import and curl examples match the running server.
 
-#### Scenario: OpenAPI describes create and read
+#### Scenario: OpenAPI describes create, read, and availability
 
 - **WHEN** `docs/api/openapi.yaml` is imported or inspected after this change
-- **THEN** it includes the clip create and read operations with request and response bodies and the conflict / not-found / validation error cases
+- **THEN** it includes the clip create (with its lifetime field), read, and availability operations with request and response bodies, and the conflict / not-found / gone / validation error cases
 
 #### Scenario: Implemented paths match the document
 
-- **WHEN** the documented create and read paths are called through the Caddy origin
+- **WHEN** the documented create, read, and availability paths are called through the Caddy origin
 - **THEN** the responses match the documented status codes and JSON shapes
+
+### Requirement: Advisory availability check
+
+The system SHALL expose a read-only operation that reports whether a given name currently appears claimable, intended to warn a user before they compose a long body under a taken name. The check MUST apply the same charset, length, and reserved-name rules as create, so a name that could never be claimed is never reported available. The check is advisory only: it MUST NOT reserve, lock, or otherwise hold the name, and a positive result MUST NOT weaken the atomicity of the claim path — two callers both told "available" MUST still race into the claim with exactly one winner.
+
+#### Scenario: Free name is reported available
+
+- **WHEN** the availability of a validly-formed, unreserved name with no live clip is requested
+- **THEN** the response reports the name as currently available
+
+#### Scenario: Live name is reported unavailable
+
+- **WHEN** the availability of a name held by a live clip is requested
+- **THEN** the response reports the name as not available, without revealing anything about the holder
+
+#### Scenario: Invalid or reserved name is reported unavailable, not available
+
+- **WHEN** the availability of a name that fails charset/length rules or matches the reserved list is requested
+- **THEN** the response reports the name as unavailable (or a validation error), never as available
+
+#### Scenario: Availability does not reserve the name
+
+- **WHEN** a name is reported available and two creates then race for it
+- **THEN** exactly one create succeeds and the other is refused as in use, exactly as if the availability check had never run
+
+### Requirement: Availability endpoint ships without a rate limit
+
+The availability operation SHALL be delivered in this slice without any rate limiting, and this gap MUST be recorded as a known enumeration surface over the live namespace to be closed by the rate-limiting slice. No correctness requirement may depend on the availability endpoint being throttled.
+
+#### Scenario: Availability works unthrottled
+
+- **WHEN** the availability endpoint is called repeatedly in this slice
+- **THEN** each call is answered on its own merits with no rate-limit response, and correctness of claim and read is unaffected by the volume of availability calls
+

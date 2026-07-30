@@ -118,9 +118,10 @@ func TestNewServer_routeTableContainsEveryProductionRoute(t *testing.T) {
 	srv := newTestServer(t)
 
 	want := map[string]string{
-		http.MethodGet + " /api/health":       "",
-		http.MethodPost + " /api/clips":       "",
-		http.MethodGet + " /api/clips/{slug}": "",
+		http.MethodGet + " /api/health":                        "",
+		http.MethodPost + " /api/clips":                        "",
+		http.MethodGet + " /api/clips/{slug}":                  "",
+		http.MethodGet + " /api/clips/{slug}/availability":     "",
 	}
 	for _, route := range srv.routes {
 		key := route.method + " " + route.path

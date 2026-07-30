@@ -17,6 +17,7 @@ import (
 	"github.com/0adnyana/go-clipboard/internal/db"
 	"github.com/0adnyana/go-clipboard/internal/httpapi"
 	appmigrate "github.com/0adnyana/go-clipboard/internal/migrate"
+	"github.com/0adnyana/go-clipboard/internal/sweeper"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -106,6 +107,27 @@ func runServe(logger *slog.Logger) error {
 
 	runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	sweepCtx, cancelSweep := context.WithCancel(runCtx)
+	sweepDone := make(chan struct{})
+	go func() {
+		defer close(sweepDone)
+		sweeper.New(clipSvc, cfg.SweepInterval, logger).Run(sweepCtx)
+	}()
+	waitSweeper := func(timeout time.Duration) {
+		cancelSweep()
+		if timeout <= 0 {
+			<-sweepDone
+			return
+		}
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		select {
+		case <-sweepDone:
+		case <-timer.C:
+		}
+	}
+	defer waitSweeper(shutdownTimeout)
 
 	errCh := make(chan error, 1)
 	go func() {

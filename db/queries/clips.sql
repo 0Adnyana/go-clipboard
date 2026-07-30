@@ -14,3 +14,15 @@ SET body = EXCLUDED.body,
     expires_at = EXCLUDED.expires_at
 WHERE clips.expires_at <= now()
 RETURNING slug, body, created_at, expires_at;
+
+-- name: DeleteExpiredClips :execrows
+DELETE FROM clips
+WHERE expires_at <= now();
+
+-- name: SlugIsLive :one
+SELECT EXISTS(
+    SELECT 1
+    FROM clips
+    WHERE slug = $1
+      AND expires_at > now()
+) AS live;

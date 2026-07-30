@@ -6,87 +6,108 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"time"
-
 	"github.com/0adnyana/go-clipboard/internal/clips"
+	"github.com/0adnyana/go-clipboard/internal/openapi"
 	"github.com/0adnyana/go-clipboard/internal/slug"
 )
 
 const maxCreateBodyBytes = clips.MaxBodyBytes + 4096 // room for JSON framing
 
-type createClipRequest struct {
-	Slug string `json:"slug"`
-	Body string `json:"body"`
+// openapiServer implements the generated contract for clip and health handlers.
+type openapiServer struct {
+	logger *slog.Logger
+	clips  *clips.Service
+	health HealthDependencies
 }
 
-type createClipResponse struct {
-	Slug      string `json:"slug"`
-	ExpiresAt string `json:"expiresAt"`
-}
+var _ openapi.ServerInterface = (*openapiServer)(nil)
 
-type readClipResponse struct {
-	Slug      string `json:"slug"`
-	Body      string `json:"body"`
-	ExpiresAt string `json:"expiresAt"`
-}
+func (s *openapiServer) CreateClip(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxCreateBodyBytes)
 
-func handleCreateClip(logger *slog.Logger, svc *clips.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, maxCreateBodyBytes)
-
-		var req createClipRequest
-		dec := json.NewDecoder(r.Body)
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(&req); err != nil {
-			var maxErr *http.MaxBytesError
-			if errors.As(err, &maxErr) {
-				writeError(w, http.StatusBadRequest, "body_too_large", "clip body must be at most 256 KiB")
-				return
-			}
-			writeError(w, http.StatusBadRequest, "invalid_body", "request body must be valid JSON with slug and body fields")
+	var req openapi.CreateClipRequest
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusBadRequest, "body_too_large", "clip body must be at most 256 KiB")
 			return
 		}
-		if err := dec.Decode(&struct{}{}); err != io.EOF {
-			writeError(w, http.StatusBadRequest, "invalid_body", "request body must be valid JSON with slug and body fields")
-			return
-		}
-
-		result, err := svc.Create(r.Context(), clips.CreateInput{
-			Slug: req.Slug,
-			Body: req.Body,
-		})
-		if err != nil {
-			writeClipError(w, logger, err)
-			return
-		}
-
-		writeJSON(w, http.StatusCreated, createClipResponse{
-			Slug:      result.Slug,
-			ExpiresAt: result.ExpiresAt.UTC().Format(time.RFC3339Nano),
-		})
+		writeError(w, http.StatusBadRequest, "invalid_body", "request body must be valid JSON with slug and body fields")
+		return
 	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "invalid_body", "request body must be valid JSON with slug and body fields")
+		return
+	}
+
+	in := clips.CreateInput{
+		Slug: req.Slug,
+		Body: req.Body,
+	}
+	if req.TtlSeconds != nil {
+		ttl, err := clips.TTLFromSeconds(int64(*req.TtlSeconds))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_ttl", "lifetime must be 10 minutes, 1 hour, or 2 hours")
+			return
+		}
+		in.TTL = ttl
+	}
+
+	result, err := s.clips.Create(r.Context(), in)
+	if err != nil {
+		writeClipError(w, s.logger, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, openapi.CreateClipResponse{
+		Slug:      result.Slug,
+		ExpiresAt: result.ExpiresAt.UTC(),
+	})
 }
 
-func handleReadClip(logger *slog.Logger, svc *clips.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		slugStr := r.PathValue("slug")
-		if slugStr == "" {
-			writeError(w, http.StatusBadRequest, "invalid_slug", "slug is required")
-			return
-		}
-
-		clip, err := svc.Read(r.Context(), slugStr)
-		if err != nil {
-			writeClipError(w, logger, err)
-			return
-		}
-
-		writeJSON(w, http.StatusOK, readClipResponse{
-			Slug:      clip.Slug,
-			Body:      clip.Body,
-			ExpiresAt: clip.ExpiresAt.UTC().Format(time.RFC3339Nano),
-		})
+func (s *openapiServer) GetClip(w http.ResponseWriter, r *http.Request, slugStr string) {
+	if slugStr == "" {
+		writeError(w, http.StatusBadRequest, "invalid_slug", "slug is required")
+		return
 	}
+
+	clip, err := s.clips.Read(r.Context(), slugStr)
+	if err != nil {
+		writeClipError(w, s.logger, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, openapi.ReadClipResponse{
+		Slug:       clip.Slug,
+		Body:       clip.Body,
+		ExpiresAt:  clip.ExpiresAt.UTC(),
+		ServerTime: s.clips.Now(),
+	})
+}
+
+func (s *openapiServer) GetClipAvailability(w http.ResponseWriter, r *http.Request, slugStr string) {
+	if slugStr == "" {
+		writeError(w, http.StatusBadRequest, "invalid_slug", "slug is required")
+		return
+	}
+
+	available, err := s.clips.Availability(r.Context(), slugStr)
+	if err != nil {
+		writeClipError(w, s.logger, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, openapi.ClipAvailabilityResponse{
+		Slug:      slugStr,
+		Available: available,
+	})
+}
+
+func (s *openapiServer) GetHealth(w http.ResponseWriter, r *http.Request) {
+	resp := buildHealthResponse(r.Context(), s.health)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func writeClipError(w http.ResponseWriter, logger *slog.Logger, err error) {
@@ -96,6 +117,8 @@ func writeClipError(w http.ResponseWriter, logger *slog.Logger, err error) {
 		writeError(w, http.StatusBadRequest, slugErr.Code, slugErr.Message)
 	case errors.Is(err, clips.ErrBodyTooLarge):
 		writeError(w, http.StatusBadRequest, "body_too_large", "clip body must be at most 256 KiB")
+	case errors.Is(err, clips.ErrInvalidTTL):
+		writeError(w, http.StatusBadRequest, "invalid_ttl", "lifetime must be 10 minutes, 1 hour, or 2 hours")
 	case errors.Is(err, clips.ErrSlugInUse):
 		writeError(w, http.StatusConflict, "slug_in_use", "that name is in use right now")
 	case errors.Is(err, clips.ErrNotFound):
@@ -105,9 +128,19 @@ func writeClipError(w http.ResponseWriter, logger *slog.Logger, err error) {
 	}
 }
 
-func clipRoutes(logger *slog.Logger, svc *clips.Service) []apiRoute {
+func clipRoutes(logger *slog.Logger, svc *clips.Service, health HealthDependencies) []apiRoute {
+	api := &openapiServer{
+		logger: logger,
+		clips:  svc,
+		health: health,
+	}
 	return []apiRoute{
-		{http.MethodPost, "/api/clips", handleCreateClip(logger, svc)},
-		{http.MethodGet, "/api/clips/{slug}", handleReadClip(logger, svc)},
+		{http.MethodPost, "/api/clips", api.CreateClip},
+		{http.MethodGet, "/api/clips/{slug}", func(w http.ResponseWriter, r *http.Request) {
+			api.GetClip(w, r, r.PathValue("slug"))
+		}},
+		{http.MethodGet, "/api/clips/{slug}/availability", func(w http.ResponseWriter, r *http.Request) {
+			api.GetClipAvailability(w, r, r.PathValue("slug"))
+		}},
 	}
 }

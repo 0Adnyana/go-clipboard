@@ -9,9 +9,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/0adnyana/go-clipboard/internal/clips"
 	"github.com/0adnyana/go-clipboard/internal/clips/fake"
+	"github.com/0adnyana/go-clipboard/internal/openapi"
 )
 
 func newClipTestHandler(t *testing.T) http.Handler {
@@ -26,10 +28,14 @@ func newClipTestHandler(t *testing.T) http.Handler {
 	return srv.Handler()
 }
 
-func postClip(handler http.Handler, slug, body string) *httptest.ResponseRecorder {
-	payload, _ := json.Marshal(map[string]string{"slug": slug, "body": body})
+func postClip(handler http.Handler, slug, body string, ttlSeconds ...int64) *httptest.ResponseRecorder {
+	payload := map[string]any{"slug": slug, "body": body}
+	if len(ttlSeconds) > 0 {
+		payload["ttlSeconds"] = ttlSeconds[0]
+	}
+	raw, _ := json.Marshal(payload)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/clips", bytes.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "/api/clips", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	handler.ServeHTTP(rec, req)
 	return rec
@@ -38,6 +44,12 @@ func postClip(handler http.Handler, slug, body string) *httptest.ResponseRecorde
 func getClip(handler http.Handler, slug string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/clips/"+slug, nil))
+	return rec
+}
+
+func getAvailability(handler http.Handler, slug string) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/clips/"+slug+"/availability", nil))
 	return rec
 }
 
@@ -57,12 +69,41 @@ func TestClips_createSuccess(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", rec.Code)
 	}
-	var body createClipResponse
+	var body openapi.CreateClipResponse
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if body.Slug != "my-clip" || body.ExpiresAt == "" {
+	if body.Slug != "my-clip" || body.ExpiresAt.IsZero() {
 		t.Fatalf("body = %+v, want slug and expiresAt", body)
+	}
+}
+
+func TestClips_createWithTTL(t *testing.T) {
+	handler := newClipTestHandler(t)
+	rec := postClip(handler, "short", "hello", 600)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", rec.Code)
+	}
+	var body openapi.CreateClipResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Slug != "short" {
+		t.Fatalf("slug = %q, want short", body.Slug)
+	}
+}
+
+func TestClips_createInvalidTTL(t *testing.T) {
+	handler := newClipTestHandler(t)
+	rec := postClip(handler, "bad-ttl", "hello", 900)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	body := decodeError(t, rec)
+	if body.Code != "invalid_ttl" {
+		t.Fatalf("code = %q, want invalid_ttl", body.Code)
 	}
 }
 
@@ -74,12 +115,61 @@ func TestClips_readSuccess(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	var body readClipResponse
+	var body openapi.ReadClipResponse
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if body.Slug != "read-me" || body.Body != "payload" {
 		t.Fatalf("body = %+v", body)
+	}
+	if body.ServerTime.IsZero() {
+		t.Fatal("serverTime is zero, want RFC3339Nano timestamp")
+	}
+}
+
+func TestClips_availabilityFree(t *testing.T) {
+	handler := newClipTestHandler(t)
+	rec := getAvailability(handler, "free-name")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var body openapi.ClipAvailabilityResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Slug != "free-name" || !body.Available {
+		t.Fatalf("body = %+v, want available", body)
+	}
+}
+
+func TestClips_availabilityLive(t *testing.T) {
+	handler := newClipTestHandler(t)
+	postClip(handler, "taken", "payload")
+
+	rec := getAvailability(handler, "taken")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var body openapi.ClipAvailabilityResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Available {
+		t.Fatalf("body = %+v, want unavailable", body)
+	}
+}
+
+func TestClips_availabilityReserved(t *testing.T) {
+	handler := newClipTestHandler(t)
+	rec := getAvailability(handler, "status")
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	body := decodeError(t, rec)
+	if body.Code != "reserved_slug" {
+		t.Fatalf("code = %q, want reserved_slug", body.Code)
 	}
 }
 
@@ -163,5 +253,26 @@ func TestClips_invalidJSON(t *testing.T) {
 	body := decodeError(t, rec)
 	if body.Code != "invalid_body" {
 		t.Fatalf("code = %q, want invalid_body", body.Code)
+	}
+}
+
+func TestOpenAPIContract_readResponseShape(t *testing.T) {
+	handler := newClipTestHandler(t)
+	postClip(handler, "contract", "data")
+
+	rec := getClip(handler, "contract")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	var body openapi.ReadClipResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode ReadClipResponse: %v", err)
+	}
+	if body.ExpiresAt.Before(body.ServerTime) {
+		t.Fatalf("expiresAt %v before serverTime %v", body.ExpiresAt, body.ServerTime)
+	}
+	if body.ExpiresAt.Sub(body.ServerTime) > clips.DefaultPreset+time.Minute {
+		t.Fatalf("expiry gap %v exceeds ceiling", body.ExpiresAt.Sub(body.ServerTime))
 	}
 }

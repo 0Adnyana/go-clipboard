@@ -1,10 +1,10 @@
 # Slice 2 — Lifetime you can see
 
-**Goal:** lifetime stops being a constant and becomes something the user picks, watches, and can
-extend. The create form grows up.
+**Goal:** lifetime stops being a constant and becomes something the user picks and watches. The
+create form grows up.
 
 **User story:** *I'm moving a password, not notes, so I pick 10 minutes instead of a day — and I can
-see it counting down. When I'm not finished with it, I extend it.*
+see it counting down.*
 
 ## What I want out of it
 
@@ -15,9 +15,6 @@ see it counting down. When I'm not finished with it, I extend it.*
   The presets above that cap arrive with accounts in slice 5, so the choice to make now is how the
   cap is expressed: the form should read as *this is the anonymous limit* rather than *this is the
   limit*, or slice 5 has to rewrite it.
-- **Extending is an explicit action, bounded by the clip's own ceiling — 2 hours from creation
-  here.** Extending a clip made 110 minutes ago buys ten minutes, not a fresh preset. Extending an
-  already-expired clip fails rather than resurrecting it.
 - **A countdown on the read page driven by the server's expiry**, not a timer started when the page
   loaded, plus a clear expired state.
 - **An availability hint on the create form, advisory only.** It never reserves anything —
@@ -33,7 +30,6 @@ see it counting down. When I'm not finished with it, I extend it.*
 
 ## Not in this slice
 
-- Ownership, so extend is available to anyone holding the URL. → slice 5
 - A rate limit on anything, including the enumeration endpoint this slice just added. → slice 3
 - Anything clever about suggested alternative names; `notes2` is fine.
 
@@ -41,7 +37,6 @@ see it counting down. When I'm not finished with it, I extend it.*
 
 - The exact preset set. Something like 10 minutes / 1 hour / 2 hours for anonymous clips, with the
   longer ones — up to 24 hours — unlocked by signing in from slice 5 onward.
-- **A grace period on reclaim.** Expired slugs are instantly claimable, so someone who hits extend a
-  second too late finds their name gone. A short window where the slug is dead but not yet claimable
-  would fix that. The extend button is what makes this failure reachable, which is why the question
-  lands here.
+- **A grace period on reclaim.** Expired slugs are instantly claimable, so someone racing to reclaim
+  a name a second too late finds it gone. A short window where the slug is dead but not yet claimable
+  would fix that.
