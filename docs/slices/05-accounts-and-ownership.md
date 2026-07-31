@@ -85,3 +85,15 @@ rather than a migration artefact.
   open, so an account-keyed limit does not reduce what a determined abuser can paste — it exists so
   that slice 11 has a dial to turn on a specific account. Whether it needs a default worth enforcing,
   or only a floor and a lever, is a question for the slice that builds the lever.
+- **Saving a clip's content as a permanent snapshot.** A registered user could save a snapshot of a
+  clip's *content* — not the clip itself — so it outlives the lifetime ceiling, and later spin up a
+  fresh clip from that saved content. This keeps the lease-pool model intact: the name and its
+  2-to-24-hour lease still expire on schedule and return to the pool, and what persists is a stored
+  asset the user owns, separate from the namespace. It is the first thing an account would protect
+  that *is* a stored asset, which cuts against the "an account protects lifetimes and names, not any
+  stored asset" framing that makes password reset skippable in slice 6 — so it can't land without
+  reopening that. Optionally, a per-clip setting could let unregistered holders of the URL save the
+  content too; that needs somewhere for an anonymous saver to keep it, which likely means it only
+  makes sense once there is a signed-in place to put it. Attractive, but it introduces durable
+  per-user storage the project has so far avoided, so it wants its own slice rather than a corner of
+  this one.
