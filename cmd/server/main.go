@@ -17,8 +17,24 @@ import (
 	"github.com/0adnyana/go-clipboard/internal/db"
 	"github.com/0adnyana/go-clipboard/internal/httpapi"
 	appmigrate "github.com/0adnyana/go-clipboard/internal/migrate"
+	"github.com/0adnyana/go-clipboard/internal/ratelimit"
 	"github.com/0adnyana/go-clipboard/internal/sweeper"
 )
+
+type querierClock struct {
+	queries db.Querier
+}
+
+func (c querierClock) ServerTime(ctx context.Context) (time.Time, error) {
+	ts, err := c.queries.ServerTime(ctx)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !ts.Valid {
+		return time.Time{}, errors.New("server time unavailable")
+	}
+	return ts.Time.UTC(), nil
+}
 
 const shutdownTimeout = 10 * time.Second
 
@@ -88,12 +104,31 @@ func runServe(logger *slog.Logger) error {
 	queries := db.New(pool)
 	clipSvc := clips.NewService(clips.NewPGStore(queries))
 
+	createLimiter := ratelimit.NewMemoryLimiter(ratelimit.MemoryConfig{
+		Rate:    cfg.RateLimit.CreateRate,
+		Window:  cfg.RateLimit.CreateWindow,
+		MaxKeys: cfg.RateLimit.MaxKeys,
+	})
+	availLimiter := ratelimit.NewMemoryLimiter(ratelimit.MemoryConfig{
+		Rate:    cfg.RateLimit.AvailRate,
+		Window:  cfg.RateLimit.AvailWindow,
+		MaxKeys: cfg.RateLimit.MaxKeys,
+	})
+
 	server, err := httpapi.NewServer(logger, httpapi.Dependencies{
 		Clips: clipSvc,
 		Health: httpapi.HealthDependencies{
 			Pool:       pool,
 			Migrations: migrations,
-			Queries:    queries,
+			ServerTime: querierClock{queries: queries},
+		},
+		RateLimit: httpapi.RateLimitDependencies{
+			CreateLimiter: createLimiter,
+			AvailLimiter:  availLimiter,
+			ClientIP: httpapi.ClientIPConfig{
+				TrustedProxy: cfg.TrustedProxy,
+				IPv6Prefix:   cfg.IPv6Prefix,
+			},
 		},
 	})
 	if err != nil {

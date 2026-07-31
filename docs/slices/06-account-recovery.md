@@ -1,7 +1,7 @@
-# Slice 6 — Getting back in
+# Slice 6 — Account recovery
 
-**Goal:** account recovery, plus the verification mechanism lazy verification promised. The first
-slice that needs mail.
+**Goal:** account recovery, plus the verification mechanism lazy verification promised. Password
+reset, verification email, and a verify endpoint — the first slice that needs mail.
 
 **User story:** *I forgot my password, click a link in an email, set a new one, and I'm back — and if
 someone else was using my session, they're not anymore.*
@@ -37,7 +37,7 @@ someone else was using my session, they're not anymore.*
 
 ## Still undecided
 
-- Whether verified status gates anything yet. It does not need to until slice 10, where it becomes
+- Whether verified status gates anything yet. It does not need to until slice 11, where it becomes
   load-bearing for OAuth linking.
 - **Which transport actually sends it**, and what the user is told when it fails. A provider API and
   SMTP differ in what they need from slice 4's secret handling, and a reset request that silently

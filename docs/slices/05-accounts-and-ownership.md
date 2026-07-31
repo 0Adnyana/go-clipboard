@@ -67,14 +67,14 @@ rather than a migration artefact.
 - Sending any mail at all, and reading the verification flag. → slice 6
 - Any way to see your own clips; the create form is the entire authenticated UI. → slice 7
 - 2FA. Deliberate sequencing: 2FA protects an account whose whole asset base evaporates within a day.
-  → slice 9
+  → slice 10
 
 ## Still undecided
 
 - **Where abuse reports go.** This is the first slice where there is finally someone to hold
-  accountable and still no way to act on it. → the gap slice 11 closes.
+  accountable and still no way to act on it. → the gap slice 12 closes.
 - **What abuse response looks like for the anonymous tier**, where there is no account to suspend
-  and the only handles are an IP and a 2-hour ceiling. Deliberately left open here; slice 11 is where
+  and the only handles are an IP and a 2-hour ceiling. Deliberately left open here; slice 12 is where
   it has to be answered, and it is the main unresolved cost of keeping anonymous creation permanent.
 - Whether sessions are database rows or signed tokens. Rows make slice 6's "invalidate every session"
   trivial, so decide with that in view.
@@ -83,7 +83,7 @@ rather than a migration artefact.
   for it; the argument has not been closed.
 - **What the per-account creation limit is for.** Anonymous creation is already limited and stays
   open, so an account-keyed limit does not reduce what a determined abuser can paste — it exists so
-  that slice 11 has a dial to turn on a specific account. Whether it needs a default worth enforcing,
+  that slice 12 has a dial to turn on a specific account. Whether it needs a default worth enforcing,
   or only a floor and a lever, is a question for the slice that builds the lever.
 - **Saving a clip's content as a permanent snapshot.** A registered user could save a snapshot of a
   clip's *content* — not the clip itself — so it outlives the lifetime ceiling, and later spin up a

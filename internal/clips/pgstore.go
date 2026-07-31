@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// PGStore adapts generated sqlc queries to the clips Store interface.
+// PGStore adapts generated sqlc queries for use by clips.Service.
 type PGStore struct {
 	queries db.Querier
 }

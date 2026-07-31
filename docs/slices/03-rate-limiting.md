@@ -11,7 +11,7 @@ it, which is the point.*
 > **This is the first of the two slices with no user-visible feature**, and slice 4 is the other —
 > they are adjacent for a reason, since a limiter with nowhere to run and a deployment with no
 > limiter are each half of the same milestone. Its success condition is that nobody notices it, which
-> is more than can be said even of slice 11, which is at least operator-*facing*. The reason it is a
+> is more than can be said even of slice 9, which is at least operator-*facing*. The reason it is a
 > slice rather than a footnote inside slice 1 is sequencing, below, and the reason it is not inside
 > slice 5 is that slice 5 ships a login form.
 
@@ -33,7 +33,7 @@ question, not this slice's.
 **What it does not do is make anything deployable.** A limiter is prevention, not abuse *response*:
 there is no kill switch, no view of who is being refused, and IPs are free, so a distributed flood
 still lands. Slice 4 goes on to build a deployment regardless, on the narrower ground that a service
-nobody has been told about is not an exposure — but slice 11 remains the deployability gate, and its
+nobody has been told about is not an exposure — but slice 12 remains the publishability gate, and its
 open question survives both slices untouched.
 
 ## What I want out of it
@@ -42,7 +42,7 @@ open question survives both slices untouched.
   slice 2's availability hint. Sharing a key is the whole reason this is tractable here: identity,
   storage, and refusal get built once, against the only tier that has nobody to hold accountable.
 - **One interface, roughly *may this key act, and if not, for how long*.** It exists so that the
-  limiters slices 5, 8, and 11 need are a constructor call rather than a rewrite of five call sites —
+  limiters slices 5, 8, and 12 need are a constructor call rather than a rewrite of five call sites —
   and so that each of them keeps its own storage decision, which is the point of the section below.
   Shaping the interface is in scope here; deciding what the other limiters key on is not.
 - **State lives in process memory, and that is a decision rather than a default.** See below — the
@@ -119,10 +119,11 @@ reversible per limiter. That is the cheap insurance worth buying regardless of h
 
 - **Every limiter that is not anonymous and IP-keyed**, including the storage question for each of
   them. Login attempts and per-account creation → slice 5. Per-clip password attempts → slice 8,
-  which takes the interface and declines the storage. The unauthenticated report form → slice 11.
+  which takes the interface and declines the storage. The unauthenticated report form → slice 12.
 - Durable state of any kind, and therefore anything that survives a deploy — which slice 4 turns into
   a routine event rather than a rare one, since every push restarts the process.
-- A kill switch, an IP-shaped admin view, or any way to *respond* to a flood in progress. → slice 11
+- A kill switch, an IP-shaped admin view, or any way to *respond* to a flood in progress. → slice 12.
+  A challenge interposed on a suspicious anonymous request, as a third tier over this limiter. → slice 13
 - Multi-instance correctness. In-process state is per-process, which is a new entry under the
   overview's standing single-instance debt rather than a new problem.
 
@@ -138,5 +139,5 @@ reversible per limiter. That is the cheap insurance worth buying regardless of h
   cheaper request and the better enumeration oracle of the two.
 - **Whether rate limiting is even the right lever for the anonymous tier.** The overview is already
   honest that IPs are free and that this tier has nobody to hold accountable. A limiter is the
-  assumed answer rather than a chosen one, and the alternatives — a cost attached to creation, or
-  slice 11's kill switch — have never been weighed against it.
+  assumed answer rather than a chosen one, and the alternatives — a cost attached to creation, slice
+  12's kill switch, or slice 13's challenge layer — have never been weighed against it.

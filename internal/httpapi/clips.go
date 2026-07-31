@@ -128,19 +128,19 @@ func writeClipError(w http.ResponseWriter, logger *slog.Logger, err error) {
 	}
 }
 
-func clipRoutes(logger *slog.Logger, svc *clips.Service, health HealthDependencies) []apiRoute {
+func clipRoutes(logger *slog.Logger, svc *clips.Service, health HealthDependencies, rl RateLimitDependencies) []apiRoute {
 	api := &openapiServer{
 		logger: logger,
 		clips:  svc,
 		health: health,
 	}
 	return []apiRoute{
-		{http.MethodPost, "/api/clips", api.CreateClip},
+		{http.MethodPost, "/api/clips", RateLimit(rl.CreateLimiter, rl.ClientIP, api.CreateClip)},
 		{http.MethodGet, "/api/clips/{slug}", func(w http.ResponseWriter, r *http.Request) {
 			api.GetClip(w, r, r.PathValue("slug"))
 		}},
-		{http.MethodGet, "/api/clips/{slug}/availability", func(w http.ResponseWriter, r *http.Request) {
+		{http.MethodGet, "/api/clips/{slug}/availability", RateLimit(rl.AvailLimiter, rl.ClientIP, func(w http.ResponseWriter, r *http.Request) {
 			api.GetClipAvailability(w, r, r.PathValue("slug"))
-		}},
+		})},
 	}
 }

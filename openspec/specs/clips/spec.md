@@ -94,19 +94,38 @@ Claiming a slug SHALL be a single atomic operation that succeeds only when no li
 - **WHEN** two create requests for the same free slug are processed concurrently
 - **THEN** exactly one succeeds and the other is refused as in use
 
+### Requirement: Anonymous creation and availability are rate-limited
+
+The anonymous create operation and the availability hint SHALL each be protected by an IP-keyed rate limiter. When a client exceeds a limiter's allowance the operation MUST be refused with the standard 429 response carrying `Retry-After`, and MUST NOT perform its work — a refused create stores nothing and a refused availability check reveals nothing. Refusal MUST NOT weaken the correctness of the claim or read paths.
+
+#### Scenario: Excessive creation from one client is refused
+
+- **WHEN** a single client IP submits create requests beyond the configured creation limit
+- **THEN** the excess requests are refused with 429 and `Retry-After`, no clip is stored for the refused requests, and the namespace does not grow from them
+
+#### Scenario: Excessive availability checks from one client are refused
+
+- **WHEN** a single client IP calls the availability hint beyond its configured limit
+- **THEN** the excess calls are refused with 429 and `Retry-After` and disclose nothing about any name
+
+#### Scenario: Limiting does not break claim or read
+
+- **WHEN** a client stays within its limit
+- **THEN** create, read, and availability behave exactly as before, and claim atomicity and read not-found semantics are unchanged
+
 ### Requirement: Clip HTTP API and OpenAPI stay aligned
 
-Clip create, read, and availability SHALL be exposed under `/api/*` as JSON, and `docs/api/openapi.yaml` MUST document those operations, schemas, and error codes in the same change as the handlers so Postman import and curl examples match the running server.
+Clip create, read, and availability SHALL be exposed under `/api/*` as JSON, and `docs/api/openapi.yaml` MUST document those operations, schemas, and error codes — including the rate-limit refusal (HTTP 429 with `Retry-After`) — in the same change as the handlers so Postman import and curl examples match the running server.
 
 #### Scenario: OpenAPI describes create, read, and availability
 
 - **WHEN** `docs/api/openapi.yaml` is imported or inspected after this change
-- **THEN** it includes the clip create (with its lifetime field), read, and availability operations with request and response bodies, and the conflict / not-found / gone / validation error cases
+- **THEN** it includes the clip create (with its lifetime field), read, and availability operations with request and response bodies, and the conflict / not-found / gone / validation / rate-limit (429) error cases
 
 #### Scenario: Implemented paths match the document
 
 - **WHEN** the documented create, read, and availability paths are called through the Caddy origin
-- **THEN** the responses match the documented status codes and JSON shapes
+- **THEN** the responses match the documented status codes and JSON shapes, including a 429 with `Retry-After` when a limit is exceeded
 
 ### Requirement: Advisory availability check
 
@@ -131,13 +150,4 @@ The system SHALL expose a read-only operation that reports whether a given name 
 
 - **WHEN** a name is reported available and two creates then race for it
 - **THEN** exactly one create succeeds and the other is refused as in use, exactly as if the availability check had never run
-
-### Requirement: Availability endpoint ships without a rate limit
-
-The availability operation SHALL be delivered in this slice without any rate limiting, and this gap MUST be recorded as a known enumeration surface over the live namespace to be closed by the rate-limiting slice. No correctness requirement may depend on the availability endpoint being throttled.
-
-#### Scenario: Availability works unthrottled
-
-- **WHEN** the availability endpoint is called repeatedly in this slice
-- **THEN** each call is answered on its own merits with no rate-limit response, and correctness of claim and read is unaffected by the volume of availability calls
 

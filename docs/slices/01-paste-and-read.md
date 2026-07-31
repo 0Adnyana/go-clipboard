@@ -61,5 +61,5 @@ type `host/notes` on my phone and get exactly what I pasted — every trailing n
 > **Not deployable.** This slice and slice 2 are a local milestone only. Creation is open to the
 > world with nothing behind it at all — not even an IP limiter, which arrives in slice 3 — and since
 > the anonymous tier is permanent, closing creation was never going to be the gate. The gate is the
-> abuse response in slice 11, and slice 3 is a precondition rather than an answer. Worth confirming
+> abuse response in slice 12, and slice 3 is a precondition rather than an answer. Worth confirming
 > that in the overview before treating any earlier slice as shippable.

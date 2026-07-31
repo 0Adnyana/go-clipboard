@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/0adnyana/go-clipboard/internal/database"
-	"github.com/0adnyana/go-clipboard/internal/db"
 	appmigrate "github.com/0adnyana/go-clipboard/internal/migrate"
 )
 
@@ -17,13 +16,22 @@ type MigrationChecker interface {
 	CheckPending(ctx context.Context) (appmigrate.Status, error)
 }
 
+// serverClock reads the database server's current time.
+type serverClock interface {
+	ServerTime(ctx context.Context) (time.Time, error)
+}
+
+type databaseProber interface {
+	Probe(ctx context.Context) database.ProbeResult
+}
+
 // HealthDependencies are genuinely optional: each absent field is reported as a
 // degraded check rather than refused, because the status page is most useful
 // exactly when part of the stack is down.
 type HealthDependencies struct {
-	Pool       *database.Pool
+	Pool       databaseProber
 	Migrations MigrationChecker
-	Queries    db.Querier
+	ServerTime serverClock
 }
 
 type DatabaseHealth struct {
@@ -84,11 +92,17 @@ func buildHealthResponse(ctx context.Context, deps HealthDependencies) HealthRes
 		resp.Status = "degraded"
 	}
 
-	if resp.Database.Reachable && deps.Queries != nil {
-		serverTime, err := deps.Queries.ServerTime(ctx)
-		if err == nil && serverTime.Valid {
-			formatted := serverTime.Time.UTC().Format(time.RFC3339Nano)
-			resp.ServerTime = &formatted
+	if resp.Database.Reachable {
+		if deps.ServerTime == nil {
+			resp.Status = "degraded"
+		} else {
+			serverTime, err := deps.ServerTime.ServerTime(ctx)
+			if err != nil || serverTime.IsZero() {
+				resp.Status = "degraded"
+			} else {
+				formatted := serverTime.UTC().Format(time.RFC3339Nano)
+				resp.ServerTime = &formatted
+			}
 		}
 	}
 

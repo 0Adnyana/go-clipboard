@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/0adnyana/go-clipboard/internal/clips"
+	"github.com/0adnyana/go-clipboard/internal/ratelimit"
 )
 
 type Server struct {
@@ -27,8 +28,17 @@ type apiRoute struct {
 // Dependencies carries what the server cannot serve without. A zero required
 // field here is a wiring bug, not a runtime condition.
 type Dependencies struct {
-	Clips  *clips.Service
-	Health HealthDependencies
+	Clips     *clips.Service
+	Health    HealthDependencies
+	RateLimit RateLimitDependencies
+}
+
+// RateLimitDependencies configures anonymous IP-keyed limiters. Nil limiters
+// disable limiting for that route (used in tests).
+type RateLimitDependencies struct {
+	CreateLimiter *ratelimit.MemoryLimiter
+	AvailLimiter  *ratelimit.MemoryLimiter
+	ClientIP      ClientIPConfig
 }
 
 func (d Dependencies) validate() error {
@@ -50,7 +60,7 @@ func NewServer(logger *slog.Logger, deps Dependencies) (*Server, error) {
 	mux := http.NewServeMux()
 
 	routes := healthRoutes(deps.Health)
-	routes = append(routes, clipRoutes(logger, deps.Clips, deps.Health)...)
+	routes = append(routes, clipRoutes(logger, deps.Clips, deps.Health, deps.RateLimit)...)
 
 	allowed := make(map[string][]string, len(routes))
 	for _, route := range routes {

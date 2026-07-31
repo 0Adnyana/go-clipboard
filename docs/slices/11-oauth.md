@@ -1,4 +1,4 @@
-# Slice 10 — OAuth
+# Slice 11 — OAuth
 
 **Goal:** sign in with a provider, and land on the account you already had. The last additive slice.
 

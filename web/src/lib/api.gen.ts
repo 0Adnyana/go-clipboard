@@ -200,6 +200,23 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
+        /** @description Rate limit exceeded */
+        RateLimited: {
+            headers: {
+                /** @description Seconds to wait before retrying */
+                "Retry-After"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "code": "rate_limited",
+                 *       "message": "too many requests"
+                 *     }
+                 */
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
         /** @description Request failed validation */
         ValidationError: {
             headers: {
@@ -285,6 +302,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            429: components["responses"]["RateLimited"];
         };
     };
     getClip: {
@@ -344,6 +362,7 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             404: components["responses"]["NotFound"];
             405: components["responses"]["MethodNotAllowed"];
+            429: components["responses"]["RateLimited"];
         };
     };
 }
