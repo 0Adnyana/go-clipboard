@@ -21,6 +21,21 @@ import (
 	"github.com/0adnyana/go-clipboard/internal/sweeper"
 )
 
+type querierClock struct {
+	queries db.Querier
+}
+
+func (c querierClock) ServerTime(ctx context.Context) (time.Time, error) {
+	ts, err := c.queries.ServerTime(ctx)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !ts.Valid {
+		return time.Time{}, errors.New("server time unavailable")
+	}
+	return ts.Time.UTC(), nil
+}
+
 const shutdownTimeout = 10 * time.Second
 
 func main() {
@@ -105,7 +120,7 @@ func runServe(logger *slog.Logger) error {
 		Health: httpapi.HealthDependencies{
 			Pool:       pool,
 			Migrations: migrations,
-			Queries:    queries,
+			ServerTime: querierClock{queries: queries},
 		},
 		RateLimit: httpapi.RateLimitDependencies{
 			CreateLimiter: createLimiter,

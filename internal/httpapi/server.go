@@ -36,8 +36,8 @@ type Dependencies struct {
 // RateLimitDependencies configures anonymous IP-keyed limiters. Nil limiters
 // disable limiting for that route (used in tests).
 type RateLimitDependencies struct {
-	CreateLimiter ratelimit.Limiter
-	AvailLimiter  ratelimit.Limiter
+	CreateLimiter *ratelimit.MemoryLimiter
+	AvailLimiter  *ratelimit.MemoryLimiter
 	ClientIP      ClientIPConfig
 }
 

@@ -62,7 +62,7 @@ func TestMemoryLimiter_evictionAtMaxKeys(t *testing.T) {
 		Window:  time.Minute,
 		MaxKeys: 3,
 		Now:     func() time.Time { return now },
-	}).(*memoryLimiter)
+	})
 
 	for _, key := range []string{"a", "b", "c"} {
 		if d := l.Allow(key); !d.Allowed {

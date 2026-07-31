@@ -8,12 +8,20 @@ import (
 	"github.com/0adnyana/go-clipboard/internal/slug"
 )
 
+// store persists clip claims, live reads, sweeps, and availability lookups.
+type store interface {
+	ClaimClip(ctx context.Context, slug, body string, createdAt, expiresAt time.Time) (*Clip, error)
+	GetLiveClip(ctx context.Context, slug string) (*Clip, error)
+	DeleteExpiredClips(ctx context.Context) (int64, error)
+	SlugIsLive(ctx context.Context, slug string) (bool, error)
+}
+
 type Service struct {
-	store Store
+	store store
 	now   func() time.Time
 }
 
-func NewService(store Store) *Service {
+func NewService(store store) *Service {
 	return &Service{
 		store: store,
 		now:   time.Now,

@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// Decision is whether a key may act now and, when refused, how long to wait.
+type Decision struct {
+	Allowed    bool
+	RetryAfter time.Duration
+}
+
 type entry struct {
 	count       int
 	windowStart time.Time
@@ -20,22 +26,8 @@ type MemoryConfig struct {
 	Now     func() time.Time
 }
 
-// NewMemoryLimiter returns a concurrency-safe fixed-window limiter with bounded keys.
-func NewMemoryLimiter(cfg MemoryConfig) Limiter {
-	now := cfg.Now
-	if now == nil {
-		now = time.Now
-	}
-	return &memoryLimiter{
-		rate:    cfg.Rate,
-		window:  cfg.Window,
-		maxKeys: cfg.MaxKeys,
-		now:     now,
-		keys:    make(map[string]entry),
-	}
-}
-
-type memoryLimiter struct {
+// MemoryLimiter is a concurrency-safe fixed-window in-memory rate limiter.
+type MemoryLimiter struct {
 	mu      sync.Mutex
 	rate    int
 	window  time.Duration
@@ -44,7 +36,22 @@ type memoryLimiter struct {
 	keys    map[string]entry
 }
 
-func (l *memoryLimiter) Allow(key string) Decision {
+// NewMemoryLimiter returns a fixed-window limiter with bounded keys.
+func NewMemoryLimiter(cfg MemoryConfig) *MemoryLimiter {
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
+	return &MemoryLimiter{
+		rate:    cfg.Rate,
+		window:  cfg.Window,
+		maxKeys: cfg.MaxKeys,
+		now:     now,
+		keys:    make(map[string]entry),
+	}
+}
+
+func (l *MemoryLimiter) Allow(key string) Decision {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -72,7 +79,7 @@ func (l *memoryLimiter) Allow(key string) Decision {
 	return Decision{Allowed: true}
 }
 
-func (l *memoryLimiter) makeRoom(now time.Time) {
+func (l *MemoryLimiter) makeRoom(now time.Time) {
 	if l.maxKeys <= 0 || len(l.keys) < l.maxKeys {
 		return
 	}

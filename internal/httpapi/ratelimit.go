@@ -8,7 +8,7 @@ import (
 )
 
 // RateLimit wraps a handler with an IP-keyed limiter check.
-func RateLimit(limiter ratelimit.Limiter, cfg ClientIPConfig, next http.HandlerFunc) http.HandlerFunc {
+func RateLimit(limiter *ratelimit.MemoryLimiter, cfg ClientIPConfig, next http.HandlerFunc) http.HandlerFunc {
 	if limiter == nil {
 		return next
 	}

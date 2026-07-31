@@ -8,35 +8,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0adnyana/go-clipboard/internal/db"
-	"github.com/jackc/pgx/v5/pgtype"
-
+	"github.com/0adnyana/go-clipboard/internal/database"
 	appmigrate "github.com/0adnyana/go-clipboard/internal/migrate"
 )
 
-type fakeQuerier struct {
-	serverTime pgtype.Timestamptz
+type fakeServerClock struct {
+	serverTime time.Time
 	err        error
 }
 
-func (f fakeQuerier) ServerTime(ctx context.Context) (pgtype.Timestamptz, error) {
+func (f fakeServerClock) ServerTime(ctx context.Context) (time.Time, error) {
 	return f.serverTime, f.err
-}
-
-func (f fakeQuerier) ClaimClip(ctx context.Context, arg db.ClaimClipParams) (db.Clip, error) {
-	return db.Clip{}, errors.New("not implemented")
-}
-
-func (f fakeQuerier) GetLiveClip(ctx context.Context, slug string) (db.Clip, error) {
-	return db.Clip{}, errors.New("not implemented")
-}
-
-func (f fakeQuerier) DeleteExpiredClips(ctx context.Context) (int64, error) {
-	return 0, errors.New("not implemented")
-}
-
-func (f fakeQuerier) SlugIsLive(ctx context.Context, slug string) (bool, error) {
-	return false, errors.New("not implemented")
 }
 
 type fakeMigrationChecker struct {
@@ -48,12 +30,87 @@ func (f fakeMigrationChecker) CheckPending(ctx context.Context) (appmigrate.Stat
 	return f.status, f.err
 }
 
+type fakeDatabaseProber struct {
+	result database.ProbeResult
+}
+
+func (f fakeDatabaseProber) Probe(ctx context.Context) database.ProbeResult {
+	return f.result
+}
+
+func reachableHealthDeps() HealthDependencies {
+	return HealthDependencies{
+		Pool: fakeDatabaseProber{
+			result: database.ProbeResult{Reachable: true, Latency: time.Millisecond},
+		},
+		Migrations: fakeMigrationChecker{
+			status: appmigrate.Status{CurrentVersion: 1},
+		},
+	}
+}
+
+func TestBuildHealthResponse_degradesWhenServerTimeNil(t *testing.T) {
+	resp := buildHealthResponse(context.Background(), reachableHealthDeps())
+
+	if resp.Status != "degraded" {
+		t.Fatalf("status = %q, want degraded when server time is unavailable", resp.Status)
+	}
+	if resp.ServerTime != nil {
+		t.Fatalf("serverTime = %v, want nil when server time is unavailable", resp.ServerTime)
+	}
+}
+
+func TestBuildHealthResponse_degradesWhenServerTimeErrors(t *testing.T) {
+	deps := reachableHealthDeps()
+	deps.ServerTime = fakeServerClock{err: errors.New("clock unavailable")}
+
+	resp := buildHealthResponse(context.Background(), deps)
+
+	if resp.Status != "degraded" {
+		t.Fatalf("status = %q, want degraded when server time check fails", resp.Status)
+	}
+	if resp.ServerTime != nil {
+		t.Fatalf("serverTime = %v, want nil when server time check fails", resp.ServerTime)
+	}
+}
+
+func TestBuildHealthResponse_degradesWhenServerTimeZero(t *testing.T) {
+	deps := reachableHealthDeps()
+	deps.ServerTime = fakeServerClock{}
+
+	resp := buildHealthResponse(context.Background(), deps)
+
+	if resp.Status != "degraded" {
+		t.Fatalf("status = %q, want degraded when server time is zero", resp.Status)
+	}
+	if resp.ServerTime != nil {
+		t.Fatalf("serverTime = %v, want nil when server time is zero", resp.ServerTime)
+	}
+}
+
+func TestBuildHealthResponse_includesServerTimeWhenValid(t *testing.T) {
+	when := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	deps := reachableHealthDeps()
+	deps.ServerTime = fakeServerClock{serverTime: when}
+
+	resp := buildHealthResponse(context.Background(), deps)
+
+	if resp.Status != "ok" {
+		t.Fatalf("status = %q, want ok when server time is valid", resp.Status)
+	}
+	if resp.ServerTime == nil {
+		t.Fatal("serverTime = nil, want RFC3339Nano UTC timestamp")
+	}
+	want := when.Format(time.RFC3339Nano)
+	if *resp.ServerTime != want {
+		t.Fatalf("serverTime = %q, want %q", *resp.ServerTime, want)
+	}
+}
+
 func TestBuildHealthResponse_omitsServerTimeWhenDatabaseUnreachable(t *testing.T) {
 	when := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 	resp := buildHealthResponse(context.Background(), HealthDependencies{
-		Queries: fakeQuerier{
-			serverTime: pgtype.Timestamptz{Time: when, Valid: true},
-		},
+		ServerTime: fakeServerClock{serverTime: when},
 	})
 
 	if resp.ServerTime != nil {
@@ -115,20 +172,5 @@ func TestBuildHealthResponse_omitsMigrationsWhenTheCheckerFails(t *testing.T) {
 	}
 	if resp.Status != "degraded" {
 		t.Fatalf("status = %q, want degraded", resp.Status)
-	}
-}
-
-func TestFakeQuerier_returnsConfiguredTime(t *testing.T) {
-	when := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
-	querier := fakeQuerier{
-		serverTime: pgtype.Timestamptz{Time: when, Valid: true},
-	}
-
-	got, err := querier.ServerTime(context.Background())
-	if err != nil {
-		t.Fatalf("ServerTime() error = %v", err)
-	}
-	if !got.Valid || !got.Time.Equal(when) {
-		t.Fatalf("ServerTime() = %+v, want %+v", got, when)
 	}
 }
