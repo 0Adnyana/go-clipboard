@@ -1,4 +1,4 @@
-# Slice 9 — Two-factor
+# Slice 10 — Two-factor
 
 **Goal:** TOTP on accounts. Strictly additive, and deliberately late — 2FA protects an account whose
 entire asset base evaporates within a day. What the account really protects is the ability to create.

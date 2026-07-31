@@ -11,10 +11,11 @@ last time.
 TLS is exactly that commit. I built nothing by hand, I copied no binary anywhere, and when a push is
 wrong I put the previous image back faster than I could work out what I broke.*
 
-> **Provenance, and a warning.** Like slices 11 and 12, this slice is ahead of the record rather than
-> behind it: the overview listed *how does this get deployed?* as an open question rather than a plan,
-> and this is the answer. It also argues with two things the overview says out loud — that Docker was
-> rejected, and that nothing before slice 11 is deployable. Both survive. The second only does so on a
+> **Provenance, and a warning.** Like slices 9, 12, and 14, this slice is ahead of the record rather
+> than behind it: the overview listed *how does this get deployed?* as an open question rather than a
+> plan, and this is the answer. It also argues with two things the overview says out loud — that
+> Docker was rejected, and that nothing before slice 12 is deployable. Both survive. The second only
+> does so on a
 > distinction the overview now spells out as *publishable* instead: a **deployment is not an
 > exposure**. That is doing real work here, so it gets a heading rather than a parenthesis.
 
@@ -27,7 +28,7 @@ running instance is defensible at all, which is why this one follows it immediat
 
 **Not later, because every remaining slice arrives holding a secret or a public URL.** Slice 6 sends
 the first real mail and needs both credentials and an absolute base URL to put inside a reset link.
-Slice 10 needs a client secret and a redirect URI registered against a hostname that has to exist
+Slice 11 needs a client secret and a redirect URI registered against a hostname that has to exist
 before the registration does. Deferring this means each of those slices is built against an
 environment that does not exist and then re-verified once it does, and it means retrofitting secret
 handling onto a service already running — the same class of mistake as retrofitting a limiter onto a
@@ -39,7 +40,7 @@ belong next to each other.
 about *publishing* the service: an address handed to people, somewhere an anonymous flood is
 somebody's afternoon. What this slice delivers is machinery — an artefact, a pipeline, a proxy that
 terminates TLS, and somewhere for secrets to live — pointed at an environment with no users and
-nothing announced. It ships no reason to tell anyone the address, and slice 11 stays the gate,
+nothing announced. It ships no reason to tell anyone the address, and slice 12 stays the gate,
 unweakened.
 
 **Unadvertised is not private, though, which is why this cannot come before the limiter.** A fresh host
@@ -112,16 +113,16 @@ sits behind slice 3's limiter by the time anything is running.
 
 ## Not in this slice
 
-- **Telling anybody the address.** Building the road is not opening it. → slice 11 remains the
-  deployability gate.
+- **Telling anybody the address.** Building the road is not opening it. → slice 12 remains the
+  publishability gate.
 - A second instance, a load balancer, or a zero-downtime swap. The single-instance debt is carried
   forward untouched, so a deploy is a brief outage — which for a clipboard is a real answer rather
   than an embarrassed one.
 - **Containerising Postgres for development, or containerising the dev loop at all.** → never; the
   overview's rejection is untouched. Production's database is a different question, below.
 - A staging environment, per-PR preview deploys, or blue/green anything.
-- Metrics, tracing, alerting, and uptime checks. Pull-only, like slice 11's report queue — nothing in
-  this project pages anybody, and the sweeper's silent failure is answered by a panel in slice 11
+- Metrics, tracing, alerting, and uptime checks. Pull-only, like slice 12's report queue — nothing in
+  this project pages anybody, and the sweeper's silent failure is answered by a panel in slice 9
   rather than by an alert here.
 - Secret rotation, which the overview already defers.
 - Migrations running automatically, anywhere, ever.
@@ -149,7 +150,7 @@ sits behind slice 3's limiter by the time anything is running.
   that can quietly stop.
 - **What is even worth backing up** — a much smaller question here than almost anywhere else, and
   worth answering rather than skipping for that reason. Everything in `clips` dies within 24 hours,
-  so a backup is about accounts and, from slice 11, the audit log, which is the only table with no
+  so a backup is about accounts and, from slice 12, the audit log, which is the only table with no
   ceiling over it. A restore that loses every live clip costs close to nothing.
 - **The hostname**, and whether a second one exists for anything at all.
 - **Whether a few seconds of 502 on every push is acceptable.** Probably yes. Worth deciding rather

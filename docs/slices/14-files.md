@@ -1,19 +1,20 @@
-# Slice 12 — Files
+# Slice 14 — Files
 
-**Goal:** the first slice in which a clip is not text. It answers the overview's open question — *are
-files ever in scope?* — with *yes, and last*, and it sits after slice 11 for a reason: files are the
-first feature in the product where the operator needs a way to respond **before** it ships rather
-than after.
+**Goal:** the first slice in which a clip is not text — last, and still provisional. It answers the
+overview's open question — *are files ever in scope?* — with *yes, and last*, and it sits after slice
+12 for a reason: files are the first feature in the product where the operator needs a way to respond
+**before** it ships rather than after.
 
 **User story:** *I drop a 4 MB PDF on the create form and name it `contract`. My colleague types
 `host/contract` on their laptop and downloads the same bytes under the same filename — and in an
 hour it is gone like everything else.*
 
-> **Provenance.** Like slice 11, this is ahead of the record rather than behind it: `clipboard-design.md`
-> has nothing about files, and the overview lists them as an open question rather than a plan. Unlike
-> slice 11, this slice also *contradicts* things earlier slices assume — slice 1's fidelity story is
-> about text, slice 2's sweeper is about rows, and slice 11's panel is written on the assumption that
-> public content is safe to show. Those want reconciling before anything is built.
+> **Provenance.** Like slices 9 and 12, this is ahead of the record rather than behind it:
+> `clipboard-design.md` has nothing about files, and the overview lists them as an open question
+> rather than a plan. Unlike those, this slice also *contradicts* things earlier slices assume —
+> slice 1's fidelity story is about text, slice 2's sweeper is about rows, and slice 9's panel is
+> written on the assumption that public content is safe to show. Those want reconciling before
+> anything is built.
 
 ## What I want out of it
 
@@ -47,7 +48,7 @@ hour it is gone like everything else.*
 - **Deleting the row has to delete the bytes.** Slice 2's sweeper deletes rows and nothing else,
   which is correct while the row *is* the content. Expiry, delete-now, burn, and overwrite all become
   space-reclaim operations, and the sweeper's failure mode changes from *the table grows*, which
-  slice 2 calls harmless, to *the disk fills*, which is not. Slice 11's sweeper panel gains bytes
+  slice 2 calls harmless, to *the disk fills*, which is not. Slice 9's sweeper panel gains bytes
   reclaimed next to rows deleted.
 - **Burn-after-read is where at-most-once delivery stops being theoretical.** Slice 8 accepts that an
   interrupted read loses the text; an interrupted 20 MB download on hotel wifi is that same failure
@@ -61,9 +62,9 @@ hour it is gone like everything else.*
   the clip's.
 - **Overwrite replaces the contents, not the kind.** A text clip never becomes a file clip or the
   reverse; slice 7's rule stays *same name, same lifetime, new contents*, within one kind.
-- **Reports get better and the panel gets more careful, in opposite directions.** Slice 11 snapshots a
+- **Reports get better and the panel gets more careful, in opposite directions.** Slice 12 snapshots a
   hash rather than content, which for a file is close to the entirety of what an operator can act on
-  and is durable evidence of a sort text reports never had. Against that, the panel's *public content
+  and is durable evidence of a sort text reports never had. Against that, slice 9's *public content
   is visible* rule does not survive arbitrary bytes: an admin sees name, filename, size, declared
   type, and hash — never the file, and never a download.
 - The reserved-name list grows again if the download path turns out to be a real path.
@@ -102,7 +103,7 @@ hour it is gone like everything else.*
 - **Whether a per-account byte quota is needed on top of the per-account creation limit.** A count
   and a volume stop being the same control once clips differ in size by four orders of magnitude.
 - **What the takedown posture is.** The overview's last open question is a different magnitude for
-  files than for text, and slice 11's account-shaped panel plus a content hash is the whole of the
+  files than for text, and slice 12's account-shaped panel plus a content hash is the whole of the
   answer this slice currently has.
 
 > **This is the slice that can argue back the furthest.** Every earlier one is a consequence of the

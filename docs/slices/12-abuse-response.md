@@ -1,31 +1,40 @@
-# Slice 11 — Admin and abuse response
+# Slice 12 — Abuse response
 
-**Goal:** the first slice that gives the operator something to *look at*. Slice 4 gave them somewhere
-to run the service and no way to see inside it; this closes the one question the design notes
-explicitly park — *abuse reporting channel: undecided* — and it is where the service stops relying
-entirely on the 24-hour ceiling to police itself.
+**Goal:** the operator can finally *respond*. Slice 9 gave them something to look at; this gives them
+something to do about it — an unauthenticated report channel, an accounts-first panel, suspension and
+deletion, and an append-only record of every action. It is the publishability gate: the first slice
+after which handing out the address is defensible, because a flood is now somebody's afternoon rather
+than an unanswerable event.
 
 **User story:** *A report comes in about `/notes`. I look up who owns it, see the same account has
 been reported four times this week, suspend them — and the clips they were holding expire on their
 own without my touching them.*
 
-> **Provenance.** Most slices inherit their decisions from `clipboard-design.md`. This one does not —
-> that document has no operator surface, only the parked question. So these notes are *ahead* of the
-> record rather than behind it, as slices 4 and 12 also are, and want folding back into the design
-> notes before anything is built.
+> **Provenance.** With slice 9, this closes the one question the design notes explicitly park —
+> *abuse reporting channel: undecided*. These notes are *ahead* of the record rather than behind it,
+> as slices 4, 9, and 14 also are, and want folding back into the design notes before anything is
+> built. Slice 9 is the read-only half of the operator story; this is the half that acts, which is
+> why it — and not slice 9 — sits behind the second factor and carries the gate.
+
+## Why it sits behind 2FA, and after slice 10
+
+Slice 9 could skip the second factor because it neither mutates state nor exposes anyone. This slice
+does both: it reads a reported account's private clip metadata, and it suspends, delimits, and
+deletes accounts. So it takes the higher bar. An admin acting here must have 2FA enabled, which is
+why this follows slice 10. Splitting the operator surface is what makes that gate precise — the
+second factor guards the capability to act and to see individuals, not the capability to read a
+dashboard. It is also why the deployment of slice 4 was never the same as an exposure: slice 4 built
+the road, and this is the slice that makes opening it defensible.
 
 ## What I want out of it
 
-- **The role is a column, not a system.** One privilege level above "user". A roles table or a policy
-  engine for a single bit is speculative work that makes every later query harder to read.
-  Config-driven admin — privileged emails in an env var — is rejected: it puts the answer to "who may
-  read other people's text" somewhere a typo grants it and nothing records that it changed.
-- **What an admin can see is the centre of this slice.** Slice 8 accepts "the server can read private
-  content" as debt, tolerable precisely because nothing acts on it. A panel is a user interface for
-  that capability. So: public clip content is visible and every view is logged; a private clip shows
-  name, owner, size, and timestamps and **never** its content — not to an admin, not on a report
-  about it. Deleting a clip never requires reading it. Whoever reported it already had the password;
-  the panel doesn't need what the reporter had.
+- **What handling a report lets an admin see.** Slice 8 accepts "the server can read private
+  content" as debt, tolerable precisely because nothing acts on it; this panel is the user interface
+  for that capability, which is the other reason it sits behind 2FA. Public clip content was already
+  visible in slice 9. Here a private clip under report shows name, owner, size, and timestamps and
+  **never** its content — not to an admin, not on a report about it. Deleting a clip never requires
+  reading it. Whoever reported it already had the password; the panel doesn't need what the reporter
+  had. Every such privileged read is written to the audit log below.
 - **The unit of action is the account, not the clip.** The same ceiling that makes abuse tolerable
   makes most reports unactionable — a report about a clip with twenty minutes left arrives after the
   clip is gone. What survives the ceiling is the account, so the panel is organised around accounts
@@ -37,9 +46,9 @@ own without my touching them.*
   clip has nothing to accumulate against, so the account-shaped panel has no answer for the tier
   most likely to be abused. Delete-the-clip still works and is worth almost nothing at a 2-hour
   ceiling. The candidates are an IP-shaped equivalent of the account view with all the accuracy
-  problems that implies, a global kill switch for anonymous creation, or accepting that the tier is
-  policed by its ceiling alone. Undecided, and it is the one thing here that could argue back into
-  slice 5.
+  problems that implies, a global kill switch for anonymous creation, or leaning on slice 13's
+  challenge layer to raise the per-attempt cost instead. Undecided, and it is the one thing here that
+  could argue back into slice 5.
 - **Account actions, made cheap by the ceiling.** Suspend (cannot create; live clips are left alone
   and expire normally), lower the creation limit, delete. There is no mass-deletion path to write
   because nothing the account made outlives tomorrow. Suspension revokes sessions — an account that
@@ -57,25 +66,22 @@ own without my touching them.*
   losing the counters on a deploy costs nothing anyone would notice. It is the one limit whose
   default can be strict without ever inconveniencing a real user, because reporting is a rare and
   deliberate act rather than part of any flow. It is also not the whole answer: IPs are free here
-  exactly as they are for the anonymous tier, and the fallback is that the queue is pull-only, so a
-  spammed queue degrades into an operator ignoring it rather than into an outage.
+  exactly as they are for the anonymous tier, so a report flood from many sources is the same shape
+  of problem slice 13's challenge layer exists to meet, and the fallback until then is that the queue
+  is pull-only — a spammed queue degrades into an operator ignoring it rather than into an outage.
 - **An append-only audit log**, which is the first thing here with no ceiling over it — every other
   record of something *happening* is bounded by expiry. It cannot be, because it is the only
-  surviving evidence of anything the panel touched; the clip in question was deleted the same day.
-  Append-only in the strongest sense that is cheap: no update or delete path exists at all, so an
-  after-the-fact edit is not expressible rather than merely discouraged.
-- **The sweeper becomes visible.** Slice 2 makes it housekeeping that correctness does not depend on,
-  which is exactly what makes its failure silent — nothing breaks, the table just grows. The panel
-  shows last sweep, rows deleted, and current expired-but-unswept count, reporting what it actually
-  observed rather than what it assumes. This is also the operational read that slice 2's autovacuum
-  tuning is otherwise guessing at.
-- **Admin auth is not a second auth system.** Same session, same login, plus a role check — a
-  separate admin login is a second attack surface guarding the same database. Two additions: an admin
-  account must have 2FA enabled (which is why this sits after slice 9), and the panel is invisible
-  rather than forbidden to non-admins, since "forbidden" confirms it exists and tells a
-  credential-stuffer what the prize is.
+  surviving evidence of anything the panel touched; the clip in question was deleted the same day. It
+  also holds the privileged reads slice 9 deliberately arranged never to need — reading a private
+  clip's metadata here *is* a privileged act, unlike reading public content there. Append-only in the
+  strongest sense that is cheap: no update or delete path exists at all, so an after-the-fact edit is
+  not expressible rather than merely discouraged.
+- **Admin auth is still not a second auth system.** Same session, same login, and the role check
+  slice 9 introduced — plus, for the admin who *acts*, the 2FA requirement this slice adds, which is
+  why it sits after slice 10. The panel stays invisible rather than forbidden to non-admins, since
+  "forbidden" confirms it exists and tells a credential-stuffer what the prize is.
 - Promoting the first admin is a documented step, not an undocumented `psql` session.
-- The reserved-name list grows again — the fourth exercise of slice 1's derivation mechanism.
+- The reserved-name list grows again if the report form turns out to need a path of its own.
 
 ## Not in this slice
 
@@ -84,6 +90,8 @@ own without my touching them.*
   only durable signal — the alternative is storing exactly what the ceiling exists to discard.
 - Notifying an admin that a report arrived; the queue is pull-only.
 - An appeal path for a suspended account beyond whatever the abuse contact turns out to be.
+- A challenge on the report form, or any adaptive humanity check. → slice 13, where the challenge
+  layer is built as its own tier.
 
 ## Still undecided
 
