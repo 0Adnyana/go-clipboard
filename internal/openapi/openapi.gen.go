@@ -138,6 +138,9 @@ type MethodNotAllowed = ErrorResponse
 // NotFound defines model for NotFound.
 type NotFound = ErrorResponse
 
+// RateLimited defines model for RateLimited.
+type RateLimited = ErrorResponse
+
 // ValidationError defines model for ValidationError.
 type ValidationError = ErrorResponse
 

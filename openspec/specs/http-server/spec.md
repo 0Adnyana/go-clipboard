@@ -216,3 +216,45 @@ The process SHALL construct domain services in its entrypoint and pass them to t
 - **WHEN** a domain service needs a database-backed store
 - **THEN** the entrypoint builds the store and the service and passes the service to the server, and the HTTP layer constructs neither
 
+### Requirement: Rate-limit refusal is a standard 429 in the JSON error shape
+
+When a request is refused by a rate limiter the server SHALL respond with HTTP 429, a `Retry-After` header stating how long the caller must wait (derived from the active window remainder), and a JSON body in the same consistent error shape every other error uses with error code `rate_limited` and message `too many requests`. The response MUST NOT reveal the limiter's key, its capacity, its rate, its window, or any other limiter metadata in the body or headers beyond the wait duration.
+
+#### Scenario: Refused request returns 429 with Retry-After and rate_limited
+
+- **WHEN** a request exceeds a limiter's allowance
+- **THEN** the response has status 429, a `Retry-After` header with the wait duration, and a JSON body with error code `rate_limited` and message `too many requests`
+
+#### Scenario: Refusal leaks nothing about the limit
+
+- **WHEN** a 429 refusal is returned
+- **THEN** the body and headers disclose only how long to wait, and nothing about the limiter's key, capacity, rate, or window
+
+### Requirement: Client IP is derived from a configured trusted hop
+
+The server SHALL derive the client IP for rate limiting from the `X-Forwarded-For` header only when the immediate connection comes from the hop configured as `TRUSTED_PROXY`, and otherwise from the direct connection address. Which hop is trusted MUST be read from configuration, because it changes with the deployment topology, and `X-Forwarded-For` MUST NEVER be trusted from an untrusted source.
+
+#### Scenario: Trusted proxy's forwarded IP is used
+
+- **WHEN** a request arrives from the configured trusted hop with an `X-Forwarded-For` header
+- **THEN** the server uses the right-most valid forwarded client IP as the client identity for rate limiting
+
+#### Scenario: Direct connection address is used when the hop is untrusted
+
+- **WHEN** a request arrives directly from a source not configured as trusted, carrying an `X-Forwarded-For` header
+- **THEN** the server ignores the header and uses the direct connection address
+
+### Requirement: Rate-limiter configuration is read from the environment
+
+The server SHALL read the trusted-hop setting and every limiter tunable (rate, window, memory cap, IPv6 prefix length) from environment variables into the typed configuration struct at startup, applying documented defaults for values that are unset, consistent with how all other configuration is loaded. Startup validation MUST reject invalid values: `TRUSTED_PROXY` must be a parseable IP address when set; each rate and `RATELIMIT_MAX_KEYS` must be a positive integer when set; each window must be a positive duration when set; and `IPV6_PREFIX` must be an integer from 0 through 128 when set. The error logged on rejection MUST name the offending environment variable.
+
+#### Scenario: Defaults applied when limiter variables are unset
+
+- **WHEN** the process starts with no rate-limiter variables set
+- **THEN** the configuration resolves each limiter tunable to its documented default and starts normally
+
+#### Scenario: Malformed limiter value is rejected at startup
+
+- **WHEN** the process starts with a rate-limiter variable set to a value that fails semantic validation
+- **THEN** the process logs an error identifying the offending environment variable and exits with a non-zero status rather than falling back to the default
+

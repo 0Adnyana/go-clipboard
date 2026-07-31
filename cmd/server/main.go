@@ -17,6 +17,7 @@ import (
 	"github.com/0adnyana/go-clipboard/internal/db"
 	"github.com/0adnyana/go-clipboard/internal/httpapi"
 	appmigrate "github.com/0adnyana/go-clipboard/internal/migrate"
+	"github.com/0adnyana/go-clipboard/internal/ratelimit"
 	"github.com/0adnyana/go-clipboard/internal/sweeper"
 )
 
@@ -88,12 +89,31 @@ func runServe(logger *slog.Logger) error {
 	queries := db.New(pool)
 	clipSvc := clips.NewService(clips.NewPGStore(queries))
 
+	createLimiter := ratelimit.NewMemoryLimiter(ratelimit.MemoryConfig{
+		Rate:    cfg.RateLimit.CreateRate,
+		Window:  cfg.RateLimit.CreateWindow,
+		MaxKeys: cfg.RateLimit.MaxKeys,
+	})
+	availLimiter := ratelimit.NewMemoryLimiter(ratelimit.MemoryConfig{
+		Rate:    cfg.RateLimit.AvailRate,
+		Window:  cfg.RateLimit.AvailWindow,
+		MaxKeys: cfg.RateLimit.MaxKeys,
+	})
+
 	server, err := httpapi.NewServer(logger, httpapi.Dependencies{
 		Clips: clipSvc,
 		Health: httpapi.HealthDependencies{
 			Pool:       pool,
 			Migrations: migrations,
 			Queries:    queries,
+		},
+		RateLimit: httpapi.RateLimitDependencies{
+			CreateLimiter: createLimiter,
+			AvailLimiter:  availLimiter,
+			ClientIP: httpapi.ClientIPConfig{
+				TrustedProxy: cfg.TrustedProxy,
+				IPv6Prefix:   cfg.IPv6Prefix,
+			},
 		},
 	})
 	if err != nil {

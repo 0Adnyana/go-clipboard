@@ -131,3 +131,27 @@ When an upstream cannot be reached the proxy SHALL return a gateway error and SH
 
 - **WHEN** a page is loaded through the proxy while the dev server is stopped
 - **THEN** the proxy returns a gateway error and logs the frontend upstream address it failed to reach
+
+### Requirement: The proxy sets X-Forwarded-For for the API
+
+The proxy SHALL set the `X-Forwarded-For` header on requests it forwards to the Go server under `/api/*`, so the server can derive the client identity for rate limiting from a known, trusted hop configured as `TRUSTED_PROXY`. The proxy MUST overwrite any client-supplied `X-Forwarded-For` value with the address it observed for the client, so a client cannot forge the identity the server rate-limits on. When multiple entries are present in the header the Go server receives, it SHALL use the right-most parseable IP address as the client identity, ignoring invalid entries.
+
+#### Scenario: API request carries the client IP to the server
+
+- **WHEN** a request to `/api/*` is forwarded from the proxy to the Go server
+- **THEN** it carries an `X-Forwarded-For` header set by the proxy to the address the proxy observed for the client
+
+#### Scenario: Client-supplied X-Forwarded-For does not pass through unchanged
+
+- **WHEN** a client sends its own `X-Forwarded-For` header to the proxy
+- **THEN** the proxy replaces it with the observed client address, so a client cannot forge the identity the server rate-limits on
+
+#### Scenario: Server uses the right-most valid forwarded IP
+
+- **WHEN** the Go server receives a request from the configured trusted hop with `X-Forwarded-For` containing multiple comma-separated values
+- **THEN** it uses the right-most parseable IP address as the client identity for rate limiting
+
+#### Scenario: Invalid forwarded entries are skipped
+
+- **WHEN** the Go server receives `X-Forwarded-For` containing invalid entries alongside valid ones
+- **THEN** it skips invalid entries and uses the right-most valid IP address, or falls back to the direct connection address if none are valid

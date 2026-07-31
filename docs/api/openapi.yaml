@@ -104,6 +104,8 @@ paths:
               example:
                 code: slug_in_use
                 message: that name is in use right now
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
         "404":
@@ -179,6 +181,8 @@ paths:
                     available: false
         "400":
           $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "404":
           $ref: "#/components/responses/NotFound"
         "405":
@@ -337,6 +341,21 @@ components:
           example:
             code: method_not_allowed
             message: method not allowed
+
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait before retrying
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: rate_limited
+            message: too many requests
 
     ValidationError:
       description: Request failed validation
