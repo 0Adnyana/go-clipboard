@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -172,5 +174,39 @@ func TestBuildHealthResponse_omitsMigrationsWhenTheCheckerFails(t *testing.T) {
 	}
 	if resp.Status != "degraded" {
 		t.Fatalf("status = %q, want degraded", resp.Status)
+	}
+}
+
+func TestHealthHTTPStatus_healthyIs200(t *testing.T) {
+	when := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	deps := reachableHealthDeps()
+	deps.ServerTime = fakeServerClock{serverTime: when}
+
+	resp := buildHealthResponse(context.Background(), deps)
+	if got := healthHTTPStatus(resp); got != http.StatusOK {
+		t.Fatalf("status = %d, want 200", got)
+	}
+}
+
+func TestHealthHTTPStatus_pendingMigrationsIs503(t *testing.T) {
+	when := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	deps := reachableHealthDeps()
+	deps.ServerTime = fakeServerClock{serverTime: when}
+	deps.Migrations = fakeMigrationChecker{
+		status: appmigrate.Status{Pending: true, CurrentVersion: 1},
+	}
+
+	resp := buildHealthResponse(context.Background(), deps)
+	if got := healthHTTPStatus(resp); got != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", got)
+	}
+}
+
+func TestHandleHealth_returns503WhenUnhealthy(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handleHealth(HealthDependencies{}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
 	}
 }

@@ -18,8 +18,8 @@ type entry struct {
 
 // MemoryConfig configures a fixed-window in-memory limiter.
 type MemoryConfig struct {
-	Rate    int
-	Window  time.Duration
+	Rate   int
+	Window time.Duration
 	// MaxKeys is the hard cap on distinct tracked keys. Values less than or
 	// equal to zero disable key bounding and eviction; makeRoom becomes a no-op.
 	MaxKeys int

@@ -1,0 +1,198 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/go-clipboard
+
+jobs:
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        run: cd web && pnpm install --frozen-lockfile
+
+      - name: Install sqlc
+        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+
+      - name: Test
+        run: make test
+
+      - name: Lint
+        run: make lint
+
+      - name: sqlc drift check
+        run: |
+          sqlc generate
+          if ! git diff --quiet -- internal/db; then
+            echo "sqlc generate produced a diff; commit the regenerated code" >&2
+            git diff -- internal/db
+            exit 1
+          fi
+
+  image:
+    name: Build image
+    runs-on: ubuntu-latest
+    needs: gate
+    permissions:
+      contents: read
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: go-clipboard:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        run: |
+          chmod +x deploy/smoke-test.sh
+          ./deploy/smoke-test.sh go-clipboard:ci
+
+      - name: Save image
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: docker save go-clipboard:ci | gzip > /tmp/image.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        with:
+          name: image
+          path: /tmp/image.tar.gz
+          retention-days: 1
+
+  publish-and-deploy:
+    name: Publish and deploy
+    runs-on: ubuntu-latest
+    needs: image
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Serialize default-branch deploys so only one runs at a time.
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: image
+          path: /tmp
+
+      - name: Load image
+        run: gunzip -c /tmp/image.tar.gz | docker load
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push SHA and latest tags
+        id: push
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          DEST="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          docker tag go-clipboard:ci "${DEST}:${SHA}"
+          docker tag go-clipboard:ci "${DEST}:latest"
+          docker push "${DEST}:${SHA}"
+          docker push "${DEST}:latest"
+          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${DEST}:${SHA}" | cut -d@ -f2)"
+          echo "digest=$DIGEST" >>"$GITHUB_OUTPUT"
+          echo "image=${DEST}@${DIGEST}" >>"$GITHUB_OUTPUT"
+          echo "sha_image=${DEST}:${SHA}" >>"$GITHUB_OUTPUT"
+
+      - name: Reject moving deploy tag
+        env:
+          SHA_IMAGE: ${{ steps.push.outputs.sha_image }}
+        run: |
+          # Guard the value that will be deployed (deploy.sh also rejects moving tags).
+          if [[ "$SHA_IMAGE" == *:latest || "$SHA_IMAGE" == */latest || "$SHA_IMAGE" == latest ]]; then
+            echo "refusing moving tag: $SHA_IMAGE" >&2
+            exit 1
+          fi
+          tag="${SHA_IMAGE##*:}"
+          if [[ ! "$tag" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "refusing non-SHA deploy tag: $SHA_IMAGE" >&2
+            exit 1
+          fi
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          cp deploy/known_hosts ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+          # Fail closed if known_hosts still has no real key entries.
+          if ! grep -qvE '^\s*(#|$)' ~/.ssh/known_hosts; then
+            echo "deploy/known_hosts has no host keys; pin the production host before deploying" >&2
+            exit 1
+          fi
+          echo "Host production" > ~/.ssh/config
+          echo "  HostName ${DEPLOY_HOST}" >> ~/.ssh/config
+          echo "  User ${{ secrets.DEPLOY_USER }}" >> ~/.ssh/config
+          echo "  IdentityFile ~/.ssh/id_ed25519" >> ~/.ssh/config
+          echo "  StrictHostKeyChecking yes" >> ~/.ssh/config
+          echo "  UserKnownHostsFile ~/.ssh/known_hosts" >> ~/.ssh/config
+
+      - name: Sync compose and deploy scripts
+        run: |
+          ssh production 'mkdir -p /opt/go-clipboard'
+          scp compose.yaml deploy/deploy.sh deploy/backup.sh deploy/restore.sh production:/opt/go-clipboard/
+          ssh production 'chmod +x /opt/go-clipboard/deploy.sh /opt/go-clipboard/backup.sh /opt/go-clipboard/restore.sh'
+
+      - name: Deploy over SSH
+        env:
+          IMAGE: ${{ steps.push.outputs.sha_image }}
+        run: |
+          PREVIOUS="$(ssh production 'cat /opt/go-clipboard/deployed-sha 2>/dev/null || true')"
+          PREV_ARG=""
+          if [[ -n "$PREVIOUS" ]]; then
+            PREV_ARG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${PREVIOUS}"
+            # deployed-sha stores a 40-char commit SHA when IMAGE is SHA-tagged.
+            if [[ ! "$PREVIOUS" =~ ^[0-9a-f]{40}$ ]]; then
+              PREV_ARG=""
+            fi
+          fi
+          ssh production \
+            "EXPECTED_PREVIOUS_SHA='${PREVIOUS}' IMAGE='${IMAGE}' /opt/go-clipboard/deploy.sh '${IMAGE}' ${PREV_ARG}"

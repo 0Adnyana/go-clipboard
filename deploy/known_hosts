@@ -1,0 +1,7 @@
+# Pin the production host's SSH host key here so CI can verify the host with
+# StrictHostKeyChecking=yes (never StrictHostKeyChecking=no).
+#
+# On the workstation that can reach the VPS:
+#   ssh-keyscan -t ed25519,rsa <production-hostname-or-ip> >> deploy/known_hosts
+#
+# Replace this comment block with the real ssh-keyscan lines before enabling deploy.

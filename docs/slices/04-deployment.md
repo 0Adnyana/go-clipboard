@@ -7,16 +7,16 @@ somewhere that is not a laptop.
 running service with no human step in the middle. Like slice 3, nothing a user can see — and for the
 last time.
 
-**User story:** *I push to `main`, and a few minutes later the thing answering at a real hostname over
+**User story:** _I push to `main`, and a few minutes later the thing answering at a real hostname over
 TLS is exactly that commit. I built nothing by hand, I copied no binary anywhere, and when a push is
-wrong I put the previous image back faster than I could work out what I broke.*
+wrong I put the previous image back faster than I could work out what I broke._
 
 > **Provenance, and a warning.** Like slices 9, 12, and 14, this slice is ahead of the record rather
-> than behind it: the overview listed *how does this get deployed?* as an open question rather than a
+> than behind it: the overview listed _how does this get deployed?_ as an open question rather than a
 > plan, and this is the answer. It also argues with two things the overview says out loud — that
 > Docker was rejected, and that nothing before slice 12 is deployable. Both survive. The second only
 > does so on a
-> distinction the overview now spells out as *publishable* instead: a **deployment is not an
+> distinction the overview now spells out as _publishable_ instead: a **deployment is not an
 > exposure**. That is doing real work here, so it gets a heading rather than a parenthesis.
 
 ## Why it sits exactly here
@@ -37,7 +37,7 @@ migration of a running one, which is the identical argument slice 3 makes about 
 belong next to each other.
 
 **A deployment is not an exposure, and that is the whole reconciliation.** The overview's gate is
-about *publishing* the service: an address handed to people, somewhere an anonymous flood is
+about _publishing_ the service: an address handed to people, somewhere an anonymous flood is
 somebody's afternoon. What this slice delivers is machinery — an artefact, a pipeline, a proxy that
 terminates TLS, and somewhere for secrets to live — pointed at an environment with no users and
 nothing announced. It ships no reason to tell anyone the address, and slice 12 stays the gate,
@@ -52,23 +52,27 @@ sits behind slice 3's limiter by the time anything is running.
 ## What I want out of it
 
 - **The app is containerised; the developer's Postgres still is not.** The overview rejects Docker,
-  and that rejection stands precisely where it was aimed: at provisioning a *database* on a machine
+  and that rejection stands precisely where it was aimed: at provisioning a _database_ on a machine
   already running the target version, where a container buys reproducibility nobody needed and an
   optional `compose.yaml` rots from never being exercised. A production image answers a different
-  question — *what, exactly, is running* — and it is the cheapest honest answer available. So the
+  question — _what, exactly, is running_ — and it is the cheapest honest answer available. So the
   container is a deployment artefact and never a development tool. `make dev`, `air`, and a Homebrew
   Postgres stay the way this project is worked on, or the dev loop starts paying for the deploy
   story.
-- **One image per commit, built once, tagged by commit SHA.** Multi-stage: the Go build and
-  `pnpm build` go in, a small runtime comes out carrying the server binary and the compiled frontend
-  assets. `latest` is refused as a deploy target, because it makes *which commit is live*
-  unanswerable, and that is the one question a deploy must always be able to answer. The image CI
-  tested is the image that runs — nothing is rebuilt from source on the host.
+- **One image per commit, built once, tagged by commit SHA, published to Docker Hub.** Multi-stage:
+  the Go build and `pnpm build` go in, a small runtime comes out carrying the server binary and the
+  compiled frontend assets. The default registry is Docker Hub under
+  `docker.io/${{ secrets.DOCKERHUB_USERNAME }}/go-clipboard` (the workflow’s `REGISTRY` /
+  `IMAGE_NAME`). CI deploys that SHA-tagged `IMAGE` reference; `deploy/deploy.sh` and `compose.yaml`
+  consume it. `latest` may be pushed as a convenience alias but is refused as a deploy target,
+  because it makes _which commit is live_ unanswerable, and that is the one question a deploy must
+  always be able to answer. The image CI tested is the image that runs — nothing is rebuilt from
+  source on the host.
 - **A production Caddyfile, which is where the skeleton's central bet finally gets settled.** The
   skeleton claims Caddy makes the development topology equal to production minus TLS and a build
   step, and this is the first slice where that is testable rather than asserted. It is also not free:
   the dev config proxies everything that is not `/api/*` to Vite, so static delivery, SPA fallback,
-  and the `/<slug>` catch-all are currently *Vite's behaviour* rather than configuration anybody
+  and the `/<slug>` catch-all are currently _Vite's behaviour_ rather than configuration anybody
   wrote. Production is where they get written for the first time — a file server over the built
   assets, a fallback to `index.html`, `/api/*` still winning on matcher specificity rather than block
   order — and therefore where "those things never get written in Go" becomes true instead of merely
@@ -95,7 +99,7 @@ sits behind slice 3's limiter by the time anything is running.
   is a broken deploy and there is nowhere else to find that out.
 - **Rollback is putting the previous tag back, and it is the first thing to reach for rather than the
   last.** The image is immutable and the database is the only state, so reverting is a pointer change
-  measured in seconds against a fix measured in a push cycle. This holds *only* while each migration
+  measured in seconds against a fix measured in a push cycle. This holds _only_ while each migration
   is compatible with the image before it, which is a constraint accepted rather than solved: one
   developer and one instance make "never ship a destructive migration alongside its consumer" a
   discipline, and nothing here enforces it.
@@ -141,9 +145,6 @@ sits behind slice 3's limiter by the time anything is running.
   overview's Docker rejection genuinely reopens, because its premise — a machine already running the
   target version — is false on a fresh host. Managed costs money and brings backups with it; a
   container on the same box makes the database's disk the application's disk.
-- **Registry, and whether the image is public.** GHCR is the obvious default given where the
-  repository already lives. A public image publishes a dependency inventory: not a secret, but not
-  nothing either.
 - **Whether the deploy is pushed or pulled.** CI holding host credentials and performing the swap,
   versus the host watching the registry and pulling. The first puts production access into a CI
   secret; the second needs something running on the box to do the watching, which is one more thing

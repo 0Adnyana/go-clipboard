@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -11,9 +12,10 @@ import (
 )
 
 type Server struct {
-	logger *slog.Logger
-	mux    *http.ServeMux
-	routes []apiRoute
+	logger   *slog.Logger
+	mux      *http.ServeMux
+	routes   []apiRoute
+	hostname string
 }
 
 // apiRoute is one registered endpoint. Both the method-qualified patterns and
@@ -31,6 +33,13 @@ type Dependencies struct {
 	Clips     *clips.Service
 	Health    HealthDependencies
 	RateLimit RateLimitDependencies
+	// StaticFS, when non-nil, serves embedded frontend assets with SPA fallback
+	// for non-API paths. Nil keeps the JSON 404 root fallback used in local
+	// development (where Vite/Caddy own static delivery).
+	StaticFS fs.FS
+	// TLSHostname, when non-empty, rejects requests whose Host header does not
+	// match. Empty in local development.
+	TLSHostname string
 }
 
 // RateLimitDependencies configures anonymous IP-keyed limiters. Nil limiters
@@ -83,12 +92,20 @@ func NewServer(logger *slog.Logger, deps Dependencies) (*Server, error) {
 	}
 
 	mux.HandleFunc("/api/", handleAPIFallback)
-	mux.HandleFunc("/", handleRootFallback)
+	if deps.StaticFS != nil {
+		// Registered as "/" so it is the least-specific pattern: method-qualified
+		// /api/* routes and the /api/ fallback win by ServeMux specificity
+		// regardless of registration order.
+		mux.Handle("/", spaFileServer(deps.StaticFS))
+	} else {
+		mux.HandleFunc("/", handleRootFallback)
+	}
 
 	return &Server{
-		logger: logger,
-		mux:    mux,
-		routes: routes,
+		logger:   logger,
+		mux:      mux,
+		routes:   routes,
+		hostname: deps.TLSHostname,
 	}, nil
 }
 
@@ -108,8 +125,9 @@ func handleRootFallback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) Handler() http.Handler {
-	return Chain(s.mux,
+	h := Chain(s.mux,
 		RequestLogging(s.logger),
 		PanicRecovery(s.logger),
 	)
+	return requireHost(s.hostname, h)
 }

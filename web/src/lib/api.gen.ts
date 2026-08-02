@@ -13,10 +13,12 @@ export interface paths {
         };
         /**
          * Stack health
-         * @description Always returns HTTP 200 when the process can answer. Degraded
-         *     dependencies are reported in the body via `status`, not via the
-         *     status code. The `migrations` object is omitted when the pending
-         *     check could not run (for example when Postgres is unreachable).
+         * @description Returns HTTP 200 only when the database is reachable and there are no
+         *     pending migrations (the deploy health-gate contract). Any other
+         *     outcome — unreachable database, pending migrations, or an omitted
+         *     `migrations` block — returns HTTP 503 with the same JSON body shape.
+         *     The `migrations` object is omitted when the pending check could not
+         *     run (for example when Postgres is unreachable).
          */
         get: operations["getHealth"];
         put?: never;
@@ -243,7 +245,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Health payload observed for this request */
+            /** @description Healthy — database reachable, no pending migrations */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -254,6 +256,15 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             405: components["responses"]["MethodNotAllowed"];
+            /** @description Unhealthy — database error and/or pending migrations */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
         };
     };
     createClip: {

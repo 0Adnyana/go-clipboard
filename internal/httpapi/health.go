@@ -109,10 +109,24 @@ func buildHealthResponse(ctx context.Context, deps HealthDependencies) HealthRes
 	return resp
 }
 
+// healthHTTPStatus maps the machine-readable health contract to an HTTP status.
+// Healthy means DB reachable and pending-migrations empty (present and false);
+// anything else — including an omitted migrations block — is non-2xx so a
+// deploy health gate can rely on the status code alone.
+func healthHTTPStatus(resp HealthResponse) int {
+	if !resp.Database.Reachable {
+		return http.StatusServiceUnavailable
+	}
+	if resp.Migrations == nil || resp.Migrations.Pending {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusOK
+}
+
 func handleHealth(deps HealthDependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		resp := buildHealthResponse(r.Context(), deps)
-		writeJSON(w, http.StatusOK, resp)
+		writeJSON(w, healthHTTPStatus(resp), resp)
 	}
 }
 

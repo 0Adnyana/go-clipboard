@@ -3,34 +3,37 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 const (
-	defaultPort                 = 8080
-	defaultMigrationsDir        = "db/migrations"
-	defaultSweepInterval        = time.Minute
-	defaultTrustedProxy         = "127.0.0.1"
-	defaultIPv6Prefix           = 64
-	defaultRateLimitCreateRate  = 10
+	defaultPort                  = 8080
+	defaultMigrationsDir         = "db/migrations"
+	defaultSweepInterval         = time.Minute
+	defaultTrustedProxy          = "127.0.0.1"
+	defaultIPv6Prefix            = 64
+	defaultRateLimitCreateRate   = 10
 	defaultRateLimitCreateWindow = time.Minute
-	defaultRateLimitAvailRate   = 30
-	defaultRateLimitAvailWindow = time.Minute
-	defaultRateLimitMaxKeys     = 10000
+	defaultRateLimitAvailRate    = 30
+	defaultRateLimitAvailWindow  = time.Minute
+	defaultRateLimitMaxKeys      = 10000
 
-	envDatabaseURL            = "DATABASE_URL"
-	envPort                   = "PORT"
-	envMigrationsDir          = "MIGRATIONS_DIR"
-	envSweepInterval          = "SWEEP_INTERVAL"
-	envTrustedProxy           = "TRUSTED_PROXY"
-	envIPv6Prefix             = "IPV6_PREFIX"
-	envRateLimitCreateRate    = "RATELIMIT_CREATE_RATE"
-	envRateLimitCreateWindow  = "RATELIMIT_CREATE_WINDOW"
-	envRateLimitAvailRate     = "RATELIMIT_AVAIL_RATE"
-	envRateLimitAvailWindow   = "RATELIMIT_AVAIL_WINDOW"
-	envRateLimitMaxKeys       = "RATELIMIT_MAX_KEYS"
+	envDatabaseURL           = "DATABASE_URL"
+	envPort                  = "PORT"
+	envMigrationsDir         = "MIGRATIONS_DIR"
+	envSweepInterval         = "SWEEP_INTERVAL"
+	envTrustedProxy          = "TRUSTED_PROXY"
+	envIPv6Prefix            = "IPV6_PREFIX"
+	envRateLimitCreateRate   = "RATELIMIT_CREATE_RATE"
+	envRateLimitCreateWindow = "RATELIMIT_CREATE_WINDOW"
+	envRateLimitAvailRate    = "RATELIMIT_AVAIL_RATE"
+	envRateLimitAvailWindow  = "RATELIMIT_AVAIL_WINDOW"
+	envRateLimitMaxKeys      = "RATELIMIT_MAX_KEYS"
+	envPublicBaseURL         = "PUBLIC_BASE_URL"
 )
 
 // RateLimitConfig holds tunables for the anonymous IP-keyed limiters.
@@ -50,6 +53,13 @@ type Config struct {
 	TrustedProxy  string
 	IPv6Prefix    int
 	RateLimit     RateLimitConfig
+
+	// PublicBaseURL is the absolute HTTPS origin of the deployment (no path,
+	// query, fragment, or userinfo). Empty in local development. In production
+	// this is the edge-facing origin; the process itself serves plain HTTP.
+	PublicBaseURL string
+	// TLSHostname is derived from PublicBaseURL; empty when PublicBaseURL is unset.
+	TLSHostname string
 }
 
 func LoadFromEnv() (Config, error) {
@@ -81,12 +91,9 @@ func LoadFromEnv() (Config, error) {
 		sweepInterval = parsed
 	}
 
-	trustedProxy := defaultTrustedProxy
-	if v := os.Getenv(envTrustedProxy); v != "" {
-		if net.ParseIP(v) == nil {
-			return Config{}, fmt.Errorf("configuration error: %s must be a valid IP address, got %q", envTrustedProxy, v)
-		}
-		trustedProxy = v
+	trustedProxy, err := loadTrustedProxy()
+	if err != nil {
+		return Config{}, err
 	}
 
 	ipv6Prefix := defaultIPv6Prefix
@@ -103,6 +110,11 @@ func LoadFromEnv() (Config, error) {
 		return Config{}, err
 	}
 
+	publicBaseURL, tlsHostname, err := loadPublicBaseURL()
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		DatabaseURL:   databaseURL,
 		Port:          port,
@@ -111,7 +123,65 @@ func LoadFromEnv() (Config, error) {
 		TrustedProxy:  trustedProxy,
 		IPv6Prefix:    ipv6Prefix,
 		RateLimit:     rateLimit,
+		PublicBaseURL: publicBaseURL,
+		TLSHostname:   tlsHostname,
 	}, nil
+}
+
+// loadTrustedProxy distinguishes unset (dev default 127.0.0.1) from explicitly
+// empty (no forwarded hop trusted). Production behind an edge proxy sets the
+// edge's IP; only that peer's X-Forwarded-For is honoured.
+func loadTrustedProxy() (string, error) {
+	v, ok := os.LookupEnv(envTrustedProxy)
+	if !ok {
+		return defaultTrustedProxy, nil
+	}
+	if v == "" {
+		return "", nil
+	}
+	if net.ParseIP(v) == nil {
+		return "", fmt.Errorf("configuration error: %s must be a valid IP address, got %q", envTrustedProxy, v)
+	}
+	return v, nil
+}
+
+func loadPublicBaseURL() (publicBaseURL, hostname string, err error) {
+	raw := strings.TrimSpace(os.Getenv(envPublicBaseURL))
+	if raw == "" {
+		return "", "", nil
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", "", fmt.Errorf("configuration error: %s is not a valid URL: %w", envPublicBaseURL, err)
+	}
+	if u.Scheme != "https" {
+		return "", "", fmt.Errorf("configuration error: %s must use the https scheme, got %q", envPublicBaseURL, u.Scheme)
+	}
+	if u.Host == "" {
+		return "", "", fmt.Errorf("configuration error: %s must include a host", envPublicBaseURL)
+	}
+	hostname = u.Hostname()
+	if hostname == "" {
+		return "", "", fmt.Errorf("configuration error: %s must include a host", envPublicBaseURL)
+	}
+	if u.User != nil {
+		return "", "", fmt.Errorf("configuration error: %s must not include userinfo", envPublicBaseURL)
+	}
+	if u.Path != "" && u.Path != "/" {
+		return "", "", fmt.Errorf("configuration error: %s must not include a path, got %q", envPublicBaseURL, u.Path)
+	}
+	if u.RawQuery != "" {
+		return "", "", fmt.Errorf("configuration error: %s must not include a query string", envPublicBaseURL)
+	}
+	if u.Fragment != "" {
+		return "", "", fmt.Errorf("configuration error: %s must not include a fragment", envPublicBaseURL)
+	}
+	origin := u.Scheme + "://" + u.Host
+	if strings.TrimRight(raw, "/") != origin {
+		return "", "", fmt.Errorf("configuration error: %s must be exactly one absolute HTTPS origin, got %q", envPublicBaseURL, raw)
+	}
+	return origin, hostname, nil
 }
 
 func loadRateLimitConfig() (RateLimitConfig, error) {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -182,14 +183,31 @@ func TestLoadFromEnv_malformedRateLimit(t *testing.T) {
 
 func clearRateLimitEnv(t *testing.T) {
 	t.Helper()
+	unsetEnv(t, envTrustedProxy)
 	for _, key := range []string{
-		envTrustedProxy, envIPv6Prefix,
+		envIPv6Prefix,
 		envRateLimitCreateRate, envRateLimitCreateWindow,
 		envRateLimitAvailRate, envRateLimitAvailWindow,
 		envRateLimitMaxKeys,
+		envPublicBaseURL,
 	} {
 		t.Setenv(key, "")
 	}
+}
+
+func unsetEnv(t *testing.T, key string) {
+	t.Helper()
+	prev, ok := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("Unsetenv(%s): %v", key, err)
+	}
+	t.Cleanup(func() {
+		if ok {
+			_ = os.Setenv(key, prev)
+			return
+		}
+		_ = os.Unsetenv(key)
+	})
 }
 
 func TestLoadFromEnv_malformedSweepInterval(t *testing.T) {
@@ -202,5 +220,75 @@ func TestLoadFromEnv_malformedSweepInterval(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), envSweepInterval) {
 		t.Errorf("error = %q, want it to name %s", err.Error(), envSweepInterval)
+	}
+}
+
+func TestLoadFromEnv_trustedProxyExplicitlyEmpty(t *testing.T) {
+	t.Setenv(envDatabaseURL, "postgres://localhost/test")
+	t.Setenv(envTrustedProxy, "")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv() error = %v", err)
+	}
+	if cfg.TrustedProxy != "" {
+		t.Errorf("TrustedProxy = %q, want empty (no forwarded hop)", cfg.TrustedProxy)
+	}
+}
+
+func TestLoadFromEnv_publicBaseURL(t *testing.T) {
+	t.Setenv(envDatabaseURL, "postgres://localhost/test")
+	unsetEnv(t, envTrustedProxy)
+	t.Setenv(envPublicBaseURL, "https://clip.example.com")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv() error = %v", err)
+	}
+	if cfg.PublicBaseURL != "https://clip.example.com" {
+		t.Errorf("PublicBaseURL = %q, want https://clip.example.com", cfg.PublicBaseURL)
+	}
+	if cfg.TLSHostname != "clip.example.com" {
+		t.Errorf("TLSHostname = %q, want clip.example.com", cfg.TLSHostname)
+	}
+}
+
+func TestLoadFromEnv_publicBaseURLTrailingSlash(t *testing.T) {
+	t.Setenv(envDatabaseURL, "postgres://localhost/test")
+	t.Setenv(envPublicBaseURL, "https://clip.example.com/")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv() error = %v", err)
+	}
+	if cfg.PublicBaseURL != "https://clip.example.com" {
+		t.Errorf("PublicBaseURL = %q, want normalised origin", cfg.PublicBaseURL)
+	}
+}
+
+func TestLoadFromEnv_publicBaseURLRejects(t *testing.T) {
+	cases := []struct {
+		name string
+		val  string
+	}{
+		{"http scheme", "http://clip.example.com"},
+		{"path", "https://clip.example.com/app"},
+		{"query", "https://clip.example.com?x=1"},
+		{"fragment", "https://clip.example.com#top"},
+		{"userinfo", "https://user:pass@clip.example.com"},
+		{"empty hostname", "https://:443"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(envDatabaseURL, "postgres://localhost/test")
+			t.Setenv(envPublicBaseURL, tc.val)
+			_, err := LoadFromEnv()
+			if err == nil {
+				t.Fatal("LoadFromEnv() expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), envPublicBaseURL) {
+				t.Errorf("error = %q, want it to name %s", err.Error(), envPublicBaseURL)
+			}
+		})
 	}
 }

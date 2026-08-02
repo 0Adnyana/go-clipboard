@@ -57,6 +57,10 @@ function throwIfError(response: Response, body: unknown): void {
 export async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch(apiUrl("/health"))
   const body = await parseJsonResponse(response)
+  // Health uses 200 (healthy) or 503 (unhealthy) with the same JSON schema.
+  if (response.status === 200 || response.status === 503) {
+    return body as HealthResponse
+  }
   throwIfError(response, body)
   return body as HealthResponse
 }

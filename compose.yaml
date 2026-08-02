@@ -1,0 +1,65 @@
+# Production runtime behind an edge TLS terminator (e.g. Caddy on a VPS).
+#
+# The app serves plain HTTP on :8080. TLS, ACME, and the public hostname live
+# at the edge; this stack is reached over a private path (Tailscale, LAN, etc.).
+#
+# Correctness of the sweeper, migration locking, and in-process rate-limiter
+# state depends on exactly ONE app instance. Do not scale the app service.
+#
+# Secrets and host-specific values live in an env file on the host (or platform
+# secrets), never in the image or this repository. Copy deploy/env.example to
+# the host as `.env` next to this file (or set `env_file`) and fill it in.
+#
+# Logs go to stdout/stderr and are collected by the container runtime — there
+# is no logging agent.
+
+name: go-clipboard
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: clipboard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the host env file}
+      POSTGRES_DB: go_clipboard
+    volumes:
+      # PG 18+ stores data under /var/lib/postgresql/<major>/docker — mount the
+      # parent, not …/data (see docker-library/postgres#1259).
+      - pgdata:/var/lib/postgresql
+    # Not published to the host — reachable only on the private Compose network.
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clipboard -d go_clipboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    # Deploy and rollback MUST reference a full commit SHA tag (or digest).
+    # Never deploy the moving `latest` tag.
+    image: ${IMAGE:?set IMAGE to registry/name@sha256:… or registry/name:<full-git-sha>}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ${ENV_FILE:-.env}
+    environment:
+      DATABASE_URL: postgres://clipboard:${POSTGRES_PASSWORD}@postgres:5432/go_clipboard?sslmode=disable
+      # Immediate peer that may set X-Forwarded-For (edge proxy Tailscale/LAN IP).
+      TRUSTED_PROXY: ${TRUSTED_PROXY:?set TRUSTED_PROXY to the edge proxy IP}
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    networks:
+      - internal
+    # Single replica only — see header comment. Do not scale this service.
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  pgdata:
