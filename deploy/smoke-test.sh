@@ -9,10 +9,27 @@ APP_NAME=go-clipboard-smoke-app
 PASSWORD=smoke-test-password
 
 cleanup() {
-  docker rm -f "$APP_NAME" "$PG_NAME" >/dev/null 2>&1 || true
+  docker rm -f "$APP_NAME" "$PG_NAME" "${PG_NAME}-empty" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+
+# Probe over TCP, not the default Unix socket: the entrypoint's init-only temp
+# server runs with listen_addresses='' and answers a socket pg_isready, so a
+# socket probe reports ready before the real server is listening on 5432.
+wait_for_pg() {
+  local container="$1" db="$2"
+  for _ in $(seq 1 60); do
+    if docker exec "$container" \
+      pg_isready -h 127.0.0.1 -p 5432 -U clipboard -d "$db" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "postgres container $container never accepted TCP connections" >&2
+  docker logs "$container" >&2 || true
+  return 1
+}
 
 docker network create "$NETWORK" >/dev/null
 docker run -d --name "$PG_NAME" --network "$NETWORK" \
@@ -21,12 +38,7 @@ docker run -d --name "$PG_NAME" --network "$NETWORK" \
   -e POSTGRES_DB=go_clipboard \
   postgres:18-alpine >/dev/null
 
-for _ in $(seq 1 30); do
-  if docker exec "$PG_NAME" pg_isready -U clipboard -d go_clipboard >/dev/null 2>&1; then
-    break
-  fi
-  sleep 1
-done
+wait_for_pg "$PG_NAME" go_clipboard
 
 DATABASE_URL="postgres://clipboard:${PASSWORD}@${PG_NAME}:5432/go_clipboard?sslmode=disable"
 
@@ -92,10 +104,7 @@ docker run -d --name "${PG_NAME}-empty" --network "$NETWORK" \
   -e POSTGRES_PASSWORD="$PASSWORD" \
   -e POSTGRES_DB=empty_db \
   postgres:18-alpine >/dev/null
-for _ in $(seq 1 30); do
-  docker exec "${PG_NAME}-empty" pg_isready -U clipboard -d empty_db >/dev/null 2>&1 && break
-  sleep 1
-done
+wait_for_pg "${PG_NAME}-empty" empty_db
 docker run -d --name "$APP_NAME" --network "$NETWORK" \
   -e "DATABASE_URL=postgres://clipboard:${PASSWORD}@${PG_NAME}-empty:5432/empty_db?sslmode=disable" \
   -e PUBLIC_BASE_URL=https://localhost \

@@ -44,7 +44,10 @@ services:
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U clipboard -d go_clipboard"]
+      # -h 127.0.0.1 forces a TCP probe. A default socket probe is answered by
+      # the entrypoint's init-only temp server (listen_addresses=''), so on a
+      # first boot it reports healthy before 5432 accepts connections.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U clipboard -d go_clipboard"]
       interval: 5s
       timeout: 5s
       retries: 10
