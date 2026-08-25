@@ -68,14 +68,14 @@ Product intent stays in [`docs/slices/`](docs/slices/); grow the OpenAPI file in
 
 ## Deployment
 
-Production runs as Docker Compose on a private LXC (e.g. homelab via Portainer), reached from a public edge proxy (e.g. Caddy on a VPS) through a Tailscale **subnet router** onto the LAN. The edge owns TLS; the app serves plain HTTP on `:8080` with the embedded frontend and API. Exactly one app instance is required (sweeper, deployment locking, in-process limiter). Setup progress is the checklist in [`DEPLOYMENT.md`](DEPLOYMENT.md#setup-checklist).
+Production runs as Docker Compose on a private LXC (e.g. homelab via Portainer), reached from a public edge proxy (e.g. Caddy on a VPS) through a Tailscale **subnet router** onto the LAN. The edge owns TLS; the app serves plain HTTP with the embedded frontend and API, published on the host's `APP_PORT` (default `8080`). Exactly one app instance is required (sweeper, deployment locking, in-process limiter). Setup progress is the checklist in [`DEPLOYMENT.md`](DEPLOYMENT.md#setup-checklist).
 
 ### Artefacts
 
 | Path | Role |
 | --- | --- |
 | `Dockerfile` | Multi-stage image: `pnpm build` → Go embed → distroless non-root binary |
-| `compose.yaml` | App (`8080`) + Postgres |
+| `compose.yaml` | App (`APP_PORT` → container `8080`) + Postgres |
 | `.github/workflows/ci.yml` | Gate (`make test`/`lint`, sqlc drift, image build + smoke) on every commit; publish + SSH deploy on `main` |
 | `deploy/deploy.sh` | Host-side migrate → health-gated swap; rejects `latest` |
 | `deploy/backup.sh` / `deploy/restore.sh` | Nightly `pg_dump` excluding ephemeral `clips` |
@@ -130,6 +130,6 @@ browser → Caddy :3000 ─┬─ /api/* → Go :8080 → Postgres
 
 ```text
 browser → edge Caddy (TLS) → Tailscale → subnet router
-       → LAN Compose LXC, Go :8080 ─┬─ /api/* → handlers → Postgres
-                                    └─ /*     → embedded SPA (go:embed)
+       → LAN Compose LXC, Go :$APP_PORT ─┬─ /api/* → handlers → Postgres
+                                         └─ /*     → embedded SPA (go:embed)
 ```

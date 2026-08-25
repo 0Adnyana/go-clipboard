@@ -11,7 +11,7 @@ This is **edge TLS termination in front of a private origin**: a public reverse 
 ```text
 browser → edge Caddy (TLS / ACME)
        → Tailscale → subnet router (tag:homelab)
-       → LAN 192.168.0.202:8080  Compose LXC (Go, plain HTTP; no Tailscale)
+       → LAN 192.168.0.202:$APP_PORT  Compose LXC (Go, plain HTTP; no Tailscale)
             ├─ /api/*  → handlers → Postgres (Compose network only)
             └─ /*      → embedded SPA (go:embed)
 
@@ -24,7 +24,7 @@ GitHub runner (tag:ci, --accept-routes)
 | TLS / public hostname   | Public edge (Caddy on a VPS)    | Not in this repo; not terminated by Go                                            |
 | App + Postgres          | Compose LXC at `192.168.0.202`  | No Tailscale on this host; image from Docker Hub; Postgres unpublished            |
 | Subnet router           | Homelab node on the tailnet     | Tagged `tag:homelab`; advertises `192.168.0.0/24` (approved in the admin console) |
-| Path edge → app `:8080` | Tailscale → subnet → LAN        | TCP peer as seen by Go becomes `TRUSTED_PROXY`                                    |
+| Path edge → app `APP_PORT` | Tailscale → subnet → LAN     | TCP peer as seen by Go becomes `TRUSTED_PROXY`                                    |
 | Path CI → host `:22`    | Tailscale → subnet → LAN        | Separate from the app path; see [CI over Tailscale](#ci-over-tailscale)           |
 | Portainer               | Optional UI on the Compose host | Watches the stack; does not deploy it                                             |
 
@@ -40,7 +40,7 @@ Operator progress for this homelab. Details for each item are in [First-time hos
 - [x] Tag **only** the subnet router `tag:homelab` (not the LXC; drop `tag:ci` from any always-on node — runners get it at job time)
 - [x] Default `*` grant removed; `tag:ci` → `192.168.0.0/24` on `tcp:22`
 - [x] Member and `tag:homelab` grants also include `192.168.0.0/24` (required once `*` is gone, or laptops/edge lose the LAN)
-- [x] ACL `tests`: `tag:ci` accept `192.168.0.202:22`, deny `:8080` and `:5432`
+- [x] ACL `tests`: `tag:ci` accept `192.168.0.202:22`, deny the app port and `:5432`
 - [x] OAuth client (write **Devices Core** + **Auth Keys**, tags field `tag:ci` only)
 - [x] Subnet route `192.168.0.0/24` approved on the router in the admin console
 
@@ -75,7 +75,7 @@ Do **not** recreate that stack from Git in Portainer. Do not let a Portainer Git
 | Path                                                                              | Role                                                                           |
 | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | [`Dockerfile`](Dockerfile)                                                        | Multi-stage: `pnpm build` → Go embed → distroless non-root binary + migrations |
-| [`compose.yaml`](compose.yaml)                                                    | App (`8080`) + Postgres 18 (named volume `pgdata`)                             |
+| [`compose.yaml`](compose.yaml)                                                    | App (`APP_PORT` → container `8080`) + Postgres 18 (named volume `pgdata`)      |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml)                            | Gate on every commit; publish + SSH deploy on `main`                           |
 | [`deploy/deploy.sh`](deploy/deploy.sh)                                            | Host-side: migrate → compatibility check → health-gated swap; rejects `latest` |
 | [`deploy/smoke-test.sh`](deploy/smoke-test.sh)                                    | CI local smoke (migrate, non-root user, health, SPA, 503 while pending)        |
@@ -87,7 +87,7 @@ Do **not** recreate that stack from Git in Portainer. Do not let a Portainer Git
 ## First-time host setup
 
 1. Provision a private host with Docker and Compose. Default deploy directory: `/opt/go-clipboard`.
-2. Ensure the public edge can reach `192.168.0.202:8080` (LAN or Tailscale → subnet router); point DNS at the edge.
+2. Ensure the public edge can reach `192.168.0.202:<APP_PORT>` (LAN or Tailscale → subnet router); point DNS at the edge.
 3. Bootstrap Compose and scripts from a **scratch clone** (CI also syncs these on each deploy). Do not leave a working tree on the host:
 
    ```bash
@@ -124,6 +124,7 @@ From [`deploy/env.example`](deploy/env.example). Secrets stay on the host — ne
 | `PUBLIC_BASE_URL`   | yes           | Absolute HTTPS origin at the edge (no path/query/fragment). Server derives `Host` from this.                                                                                                                  |
 | `POSTGRES_PASSWORD` | yes           | Compose Postgres password; interpolated into `DATABASE_URL`                                                                                                                                                   |
 | `TRUSTED_PROXY`     | yes           | TCP peer IP of the edge as seen by the app. Same-LAN edge: the edge’s LAN IP. Edge arriving via the subnet router with Tailscale SNAT on: the router’s LAN IP. Honours `X-Forwarded-For` only from this peer. |
+| `APP_PORT`          | no (dflt 8080) | Host-side published port. The container always listens on `8080`; set this when `8080` is taken on the host, and point the edge at the same value                                                            |
 | `IMAGE`             | deploy arg    | Passed as the `deploy.sh` argument, not stored in `.env`: content digest (`registry/name@sha256:…`) — **never** `latest`. A full 40-char SHA tag is accepted only for manual rollback of a pre-digest deploy  |
 
 `DATABASE_URL` is composed by `compose.yaml` / `deploy.sh` against the private `postgres` service. Do not publish Postgres to the host.
@@ -145,7 +146,7 @@ Workflow env: `REGISTRY=docker.io`, `IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }
 
 ## CI over Tailscale
 
-GitHub-hosted runners are on the public internet. They cannot SSH to a LAN-only `:22` unless the **runner joins the tailnet** and **accepts subnet routes**. That hop is separate from the edge → app `:8080` path (`TRUSTED_PROXY`). The Compose LXC does not run Tailscale; `tag:ci` is never applied to it.
+GitHub-hosted runners are on the public internet. They cannot SSH to a LAN-only `:22` unless the **runner joins the tailnet** and **accepts subnet routes**. That hop is separate from the edge → app `APP_PORT` path (`TRUSTED_PROXY`). The Compose LXC does not run Tailscale; `tag:ci` is never applied to it.
 
 `publish-and-deploy` joins the tailnet (ephemeral `tag:ci` node, `--accept-routes`) **before** Configure SSH / `scp` / `deploy.sh`.
 
@@ -153,7 +154,7 @@ GitHub-hosted runners are on the public internet. They cannot SSH to a LAN-only 
 
 Default tailnets allow `src`/`dst`/`ip: *`. That includes tagged devices, so adding a CI rule **on top of it does nothing** — replace that grant. Use **grants** (port in `ip`, not in `dst`).
 
-Tag the **subnet router** `tag:homelab` (and the edge VPS too if it is on the tailnet). Do not tag the Compose LXC — it is not a tailnet node. `tag:homelab` is the router’s identity, not `192.168.0.202`; grants that should reach the LXC must use the advertised CIDR as `dst`. CI gets OpenSSH only — not `:8080`, not Postgres. The policy `"ssh"` section is Tailscale SSH; GitHub Actions uses ordinary SSH + `DEPLOY_SSH_KEY` and does not need a Tailscale SSH rule for `tag:ci`. Do not grant inbound access to `tag:ci`.
+Tag the **subnet router** `tag:homelab` (and the edge VPS too if it is on the tailnet). Do not tag the Compose LXC — it is not a tailnet node. `tag:homelab` is the router’s identity, not `192.168.0.202`; grants that should reach the LXC must use the advertised CIDR as `dst`. CI gets OpenSSH only — not the app port, not Postgres. The policy `"ssh"` section is Tailscale SSH; GitHub Actions uses ordinary SSH + `DEPLOY_SSH_KEY` and does not need a Tailscale SSH rule for `tag:ci`. Do not grant inbound access to `tag:ci`.
 
 ```json
 {
@@ -183,7 +184,7 @@ Tag the **subnet router** `tag:homelab` (and the edge VPS too if it is on the ta
 			"src": "tag:ci",
 			"proto": "tcp",
 			"accept": ["192.168.0.202:22"],
-			"deny": ["192.168.0.202:8080", "192.168.0.202:5432"]
+			"deny": ["192.168.0.202:8080", "192.168.0.202:8082", "192.168.0.202:5432"]
 		}
 	]
 }
@@ -290,10 +291,10 @@ Through the edge after deploy:
 curl -sS "https://clip.example.com/api/health" | jq
 ```
 
-Directly on the Compose host (bypasses the edge; still send the public `Host`):
+Directly on the Compose host (bypasses the edge; still send the public `Host`). Use `APP_PORT`, not the container’s `8080`:
 
 ```bash
-curl -sS -H "Host: clip.example.com" http://127.0.0.1:8080/api/health | jq
+curl -sS -H "Host: clip.example.com" http://127.0.0.1:8082/api/health | jq
 ```
 
 ## Backups and restore
@@ -316,7 +317,7 @@ Local dumps under `/var/backups/go-clipboard` are retained 7 days; set `BACKUP_R
 The edge must:
 
 - Terminate TLS for `PUBLIC_BASE_URL`’s hostname
-- Proxy to the app at the Compose LXC LAN address on port `8080` (directly on LAN, or via Tailscale through the subnet router)
+- Proxy to the app at the Compose LXC LAN address on the host’s `APP_PORT` (directly on LAN, or via Tailscale through the subnet router)
 - Preserve/forward client identity so the app’s `TRUSTED_PROXY` can trust `X-Forwarded-For`
 
 Misconfigured `TRUSTED_PROXY` breaks rate-limit client identity; wrong `Host` / `PUBLIC_BASE_URL` causes the app to reject requests.

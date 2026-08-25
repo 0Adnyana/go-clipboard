@@ -1,7 +1,8 @@
 # Production runtime behind an edge TLS terminator (e.g. Caddy on a VPS).
 #
-# The app serves plain HTTP on :8080. TLS, ACME, and the public hostname live
-# at the edge; this stack is reached over a private path (Tailscale, LAN, etc.).
+# The app serves plain HTTP on container port 8080, published on the host as
+# APP_PORT. TLS, ACME, and the public hostname live at the edge; this stack is
+# reached over a private path (Tailscale, LAN, etc.).
 #
 # Correctness of the sweeper, migration locking, and in-process rate-limiter
 # state depends on exactly ONE app instance. Do not scale the app service.
@@ -51,8 +52,10 @@ services:
       # Immediate peer that may set X-Forwarded-For (edge proxy Tailscale/LAN IP).
       TRUSTED_PROXY: ${TRUSTED_PROXY:?set TRUSTED_PROXY to the edge proxy IP}
       PORT: "8080"
+    # The container always listens on 8080; APP_PORT is the host-side published
+    # port and is what the edge proxy must target.
     ports:
-      - "8080:8080"
+      - "${APP_PORT:-8080}:8080"
     networks:
       - internal
     # Single replica only — see header comment. Do not scale this service.
