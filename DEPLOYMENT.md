@@ -1,12 +1,12 @@
 # Deployment
 
-Operational runbook for running go-clipboard in production. Product intent for this slice lives in [`docs/slices/04-deployment.md`](docs/slices/04-deployment.md); design decisions in [`openspec/changes/deployment/design.md`](openspec/changes/deployment/design.md).
+Operational runbook for running go-clipboard in production. Product intent for this slice lives in `[docs/slices/04-deployment.md](docs/slices/04-deployment.md)`; design decisions in `[openspec/changes/deployment/design.md](openspec/changes/deployment/design.md)`.
 
 A deployment is **not** a public exposure — publishing the address remains a later gate. Exactly **one** app instance is required (in-process sweeper, migration locking, rate-limiter state).
 
 ## Topology
 
-This is **edge TLS termination in front of a private origin**: a public reverse proxy terminates TLS; the app runs on a private Compose host (Docker LXC) that is **not** on Tailscale. A homelab **subnet router** advertises the LAN (`192.168.0.0/24`) so the edge and CI reach `192.168.0.202` through Tailscale. Releases are **push-based CD** — GitHub Actions joins the tailnet (with subnet routes), SSHs to that LAN address, and runs [`deploy/deploy.sh`](deploy/deploy.sh). That is distinct from pull-based / GitOps (Portainer Git sync, watch `latest`).
+This is **edge TLS termination in front of a private origin**: a public reverse proxy terminates TLS; the app runs on a private Compose host (Docker LXC) that is **not** on Tailscale. A homelab **subnet router** advertises the LAN (`192.168.0.0/24`) so the edge and CI reach `192.168.0.202` through Tailscale. Releases are **push-based CD** — GitHub Actions joins the tailnet (with subnet routes), SSHs to that LAN address, and runs `[deploy/deploy.sh](deploy/deploy.sh)`. That is distinct from pull-based / GitOps (Portainer Git sync, watch `latest`).
 
 ```text
 browser → edge Caddy (TLS / ACME)
@@ -19,16 +19,16 @@ GitHub runner (tag:ci, --accept-routes)
        → Tailscale → subnet router → 192.168.0.202:22
 ```
 
-| Piece                   | Where                           | Notes                                                                             |
-| ----------------------- | ------------------------------- | --------------------------------------------------------------------------------- |
-| TLS / public hostname   | Public edge (Caddy on a VPS)    | Not in this repo; not terminated by Go                                            |
-| App + Postgres          | Compose LXC at `192.168.0.202`  | No Tailscale on this host; image from Docker Hub; Postgres unpublished            |
-| Subnet router           | Homelab node on the tailnet     | Tagged `tag:homelab`; advertises `192.168.0.0/24` (approved in the admin console) |
-| Path edge → app `APP_PORT` | Tailscale → subnet → LAN     | TCP peer as seen by Go becomes `TRUSTED_PROXY`                                    |
-| Path CI → host `:22`    | Tailscale → subnet → LAN        | Separate from the app path; see [CI over Tailscale](#ci-over-tailscale)           |
-| Portainer               | Optional UI on the Compose host | Watches the stack; does not deploy it                                             |
+| Piece                      | Where                           | Notes                                                                             |
+| -------------------------- | ------------------------------- | --------------------------------------------------------------------------------- |
+| TLS / public hostname      | Public edge (Caddy on a VPS)    | Not in this repo; not terminated by Go                                            |
+| App + Postgres             | Compose LXC at `192.168.0.202`  | No Tailscale on this host; image from Docker Hub; Postgres unpublished            |
+| Subnet router              | Homelab node on the tailnet     | Tagged `tag:homelab`; advertises `192.168.0.0/24` (approved in the admin console) |
+| Path edge → app `APP_PORT` | Tailscale → subnet → LAN        | TCP peer as seen by Go becomes `TRUSTED_PROXY`                                    |
+| Path CI → host `:22`       | Tailscale → subnet → LAN        | Separate from the app path; see [CI over Tailscale](#ci-over-tailscale)           |
+| Portainer                  | Optional UI on the Compose host | Watches the stack; does not deploy it                                             |
 
-Do not keep a git checkout on the production host. The running artefact is the digest-pinned image; CI copies only `compose.yaml` and the deploy scripts into `/opt/go-clipboard`. Host secrets live in `/opt/go-clipboard/.env` (from [`deploy/env.example`](deploy/env.example)), never in the repo or image. The laptop `.env.example` is for `make dev` only — do not copy it onto the host.
+Do not keep a git checkout on the production host. The running artefact is the digest-pinned image; CI copies only `compose.yaml` and the deploy scripts into `/opt/go-clipboard`. Host secrets live in `/opt/go-clipboard/.env` (from `[deploy/env.example](deploy/env.example)`), never in the repo or image. The laptop `.env.example` is for `make dev` only — do not copy it onto the host.
 
 ## Setup checklist
 
@@ -48,22 +48,22 @@ Operator progress for this homelab. Details for each item are in [First-time hos
 
 - [x] Actions secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `DEPLOY_HOST` (`192.168.0.202`), `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`
 - [x] GitHub Environment named `production` (the deploy job requires it)
-- [x] [`deploy/known_hosts`](deploy/known_hosts) pins `192.168.0.202` (same string as `DEPLOY_HOST`)
+- [x] `[deploy/known_hosts](deploy/known_hosts)` pins `192.168.0.202` (same string as `DEPLOY_HOST`)
 - [x] Workflow Tailscale step passes no `args` (the action supplies `--accept-routes` on its own)
 
 ### Compose host (LXC)
 
 - [x] Deploy key’s public half in `~/.ssh/authorized_keys` for `DEPLOY_USER`
-- [ ] `/opt/go-clipboard` exists and is **owned by `DEPLOY_USER`**
-- [ ] `/opt/go-clipboard/.env` written from [`deploy/env.example`](deploy/env.example), readable by `DEPLOY_USER`
-- [ ] `DEPLOY_USER` in the `docker` group
-- [ ] Host can pull the image (`docker login` as `DEPLOY_USER` if the Docker Hub repository is private)
-- [ ] LXC `:22` not published on the public internet
+- [x] `/opt/go-clipboard` exists and is **owned by `DEPLOY_USER`**
+- [x] `/opt/go-clipboard/.env` written from `[deploy/env.example](deploy/env.example)`, readable by `DEPLOY_USER`
+- [x] `DEPLOY_USER` in the `docker` group
+- [x] Host can pull the image (`docker login` as `DEPLOY_USER` if the Docker Hub repository is private)
+- [x] LXC `:22` not published on the public internet
 
 ### First deploy
 
-- [ ] Open a PR to `main` first — runs the gate and image build, deploys nothing
-- [ ] Merge to `main` so `publish-and-deploy` runs
+- [x] Open a PR to `main` first — runs the gate and image build, deploys nothing
+- [x] Merge to `main` so `publish-and-deploy` runs
 - [ ] `GET https://<hostname>/api/health` through the edge returns 200
 
 ### Order of operations
@@ -88,17 +88,17 @@ Do **not** recreate that stack from Git in Portainer. Do not let a Portainer Git
 
 ## Artefacts
 
-| Path                                                                              | Role                                                                           |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [`Dockerfile`](Dockerfile)                                                        | Multi-stage: `pnpm build` → Go embed → distroless non-root binary + migrations |
-| [`compose.yaml`](compose.yaml)                                                    | App (`APP_PORT` → container `8080`) + optional Postgres 18 (`bundled-db` profile, named volume `pgdata`) |
-| [`.github/workflows/ci.yml`](.github/workflows/ci.yml)                            | Gate on every commit; publish + SSH deploy on `main`                           |
-| [`deploy/deploy.sh`](deploy/deploy.sh)                                            | Host-side: migrate → compatibility check → health-gated swap; rejects `latest` |
-| [`deploy/smoke-test.sh`](deploy/smoke-test.sh)                                    | CI local smoke (migrate, non-root user, health, SPA, 503 while pending)        |
-| [`deploy/backup.sh`](deploy/backup.sh) / [`deploy/restore.sh`](deploy/restore.sh) | Nightly dump (excludes `clips` data) and restore                               |
-| [`deploy/env.example`](deploy/env.example)                                        | Template for the host `.env`                                                   |
-| [`deploy/known_hosts`](deploy/known_hosts)                                        | Pinned production SSH host keys (required before CI deploy)                    |
-| [`deploy/crontab.example`](deploy/crontab.example)                                | Nightly backup cron                                                            |
+| Path                                                                              | Role                                                                                                     |
+| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `[Dockerfile](Dockerfile)`                                                        | Multi-stage: `pnpm build` → Go embed → distroless non-root binary + migrations                           |
+| `[compose.yaml](compose.yaml)`                                                    | App (`APP_PORT` → container `8080`) + optional Postgres 18 (`bundled-db` profile, named volume `pgdata`) |
+| `[.github/workflows/ci.yml](.github/workflows/ci.yml)`                            | Gate on every commit; publish + SSH deploy on `main`                                                     |
+| `[deploy/deploy.sh](deploy/deploy.sh)`                                            | Host-side: migrate → compatibility check → health-gated swap; rejects `latest`                           |
+| `[deploy/smoke-test.sh](deploy/smoke-test.sh)`                                    | CI local smoke (migrate, non-root user, health, SPA, 503 while pending)                                  |
+| `[deploy/backup.sh](deploy/backup.sh)` / `[deploy/restore.sh](deploy/restore.sh)` | Nightly dump (excludes `clips` data) and restore                                                         |
+| `[deploy/env.example](deploy/env.example)`                                        | Template for the host `.env`                                                                             |
+| `[deploy/known_hosts](deploy/known_hosts)`                                        | Pinned production SSH host keys (required before CI deploy)                                              |
+| `[deploy/crontab.example](deploy/crontab.example)`                                | Nightly backup cron                                                                                      |
 
 ## First-time host setup
 
@@ -106,11 +106,11 @@ CI syncs `compose.yaml` and the deploy scripts to `/opt/go-clipboard` on **every
 
 Three things must be true before the first deploy. All three are about identity: `deploy.sh` runs entirely as `DEPLOY_USER` over SSH, and contains no `sudo` anywhere.
 
-| Requirement                                | Why                                                          |
-| ------------------------------------------ | -------------------------------------------------------------- |
-| `/opt/go-clipboard` owned by `DEPLOY_USER` | CI `scp`s `compose.yaml` and the scripts into it              |
-| `.env` readable by `DEPLOY_USER`           | `deploy.sh` sources it                                         |
-| `DEPLOY_USER` in the `docker` group        | `deploy.sh` runs `docker pull` / `docker run` / `compose`     |
+| Requirement                                | Why                                                       |
+| ------------------------------------------ | --------------------------------------------------------- |
+| `/opt/go-clipboard` owned by `DEPLOY_USER` | CI `scp`s `compose.yaml` and the scripts into it          |
+| `.env` readable by `DEPLOY_USER`           | `deploy.sh` sources it                                    |
+| `DEPLOY_USER` in the `docker` group        | `deploy.sh` runs `docker pull` / `docker run` / `compose` |
 
 Ownership is the easy thing to get wrong. A root-owned directory fails CI’s `scp`; a root-owned mode-600 `.env` fails `deploy.sh` at `source`. Neither surfaces until the first deploy.
 
@@ -132,7 +132,7 @@ The `chown` is unnecessary only when `DEPLOY_USER` is `root`.
 
 ### 2. Write the host env file
 
-Create `/opt/go-clipboard/.env` from [`deploy/env.example`](deploy/env.example). Writing it *as* `DEPLOY_USER` sidesteps the ownership trap:
+Create `/opt/go-clipboard/.env` from `[deploy/env.example](deploy/env.example)`. Writing it _as_ `DEPLOY_USER` sidesteps the ownership trap:
 
 ```bash
 sudo -u "$DEPLOY_USER" tee /opt/go-clipboard/.env >/dev/null <<'EOF'
@@ -164,9 +164,19 @@ sudo -u "$DEPLOY_USER" -H bash -lc 'set -a; . /opt/go-clipboard/.env; set +a; ec
 
 If the Docker Hub repository is private, also run `docker login` once as `DEPLOY_USER`: `deploy.sh` pulls with the host’s own credentials, not CI’s. The health probe additionally pulls `curlimages/curl:8.5.0`, so the host needs outbound internet either way.
 
+A fourth check covers the SSH identity CI uses, which is the one thing the three above cannot see. Compare the fingerprint the workflow’s **Configure SSH** step prints against the host’s `authorized_keys`, and confirm `sshd` will honour it:
+
+```bash
+sudo -u "$DEPLOY_USER" -H ssh-keygen -lf ~/.ssh/authorized_keys
+sudo ls -ld ~"$DEPLOY_USER" ~"$DEPLOY_USER"/.ssh ~"$DEPLOY_USER"/.ssh/authorized_keys
+sudo sshd -T | grep -Ei 'pubkeyauth|authorizedkeysfile|allowusers|allowgroups'
+```
+
+`sshd` enforces `StrictModes`: a group- or world-writable home directory makes it ignore `authorized_keys` entirely and refuse the key without logging anything on the client side. Want `.ssh` at `700` and `authorized_keys` at `600`.
+
 ### 4. Pin the SSH host key
 
-Pin the host’s SSH host key into committed [`deploy/known_hosts`](deploy/known_hosts) (never `StrictHostKeyChecking=no`). Scan the same address CI will use — the LXC LAN IP (`192.168.0.202`), not a MagicDNS / `100.x` name (this host has none). See [CI over Tailscale](#ci-over-tailscale).
+Pin the host’s SSH host key into committed `[deploy/known_hosts](deploy/known_hosts)` (never `StrictHostKeyChecking=no`). Scan the same address CI will use — the LXC LAN IP (`192.168.0.202`), not a MagicDNS / `100.x` name (this host has none). See [CI over Tailscale](#ci-over-tailscale).
 
 ### 5. Configure GitHub
 
@@ -176,23 +186,23 @@ Add the Actions secrets and the `production` environment — see [GitHub Actions
 
 Merge to `main` (or run `deploy.sh` manually with a digest-pinned image), then confirm `GET https://<hostname>/api/health` through the edge returns 200.
 
-Optional: install nightly backups from [`deploy/crontab.example`](deploy/crontab.example) and set `BACKUP_REMOTE`.
+Optional: install nightly backups from `[deploy/crontab.example](deploy/crontab.example)` and set `BACKUP_REMOTE`.
 
 ## Configuration
 
 ### Host env (`/opt/go-clipboard/.env`)
 
-From [`deploy/env.example`](deploy/env.example). Secrets stay on the host — never in the repo or image.
+From `[deploy/env.example](deploy/env.example)`. Secrets stay on the host — never in the repo or image.
 
-| Variable            | Required      | Purpose                                                                                                                                                                                                       |
-| ------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PUBLIC_BASE_URL`   | yes           | Absolute HTTPS origin at the edge (no path/query/fragment). Server derives `Host` from this.                                                                                                                  |
-| `POSTGRES_PASSWORD` | bundled DB    | Compose Postgres password; interpolated into `DATABASE_URL`. Not needed with an external database                                                                                                             |
-| `COMPOSE_PROFILES`  | bundled DB    | `bundled-db` runs Postgres inside the stack. Unset it for an external database                                                                                                                                |
-| `DATABASE_URL`      | external DB   | Full connection string. Setting it selects an [external database](#external-database) and disables the bundled Postgres                                                                                       |
-| `TRUSTED_PROXY`     | yes           | TCP peer IP of the edge as seen by the app. Same-LAN edge: the edge’s LAN IP. Edge arriving via the subnet router with Tailscale SNAT on: the router’s LAN IP. Honours `X-Forwarded-For` only from this peer. |
-| `APP_PORT`          | no (dflt 8080) | Host-side published port. The container always listens on `8080`; set this when `8080` is taken on the host, and point the edge at the same value                                                            |
-| `IMAGE`             | deploy arg    | Passed as the `deploy.sh` argument, not stored in `.env`: content digest (`registry/name@sha256:…`) — **never** `latest`. A full 40-char SHA tag is accepted only for manual rollback of a pre-digest deploy  |
+| Variable            | Required       | Purpose                                                                                                                                                                                                       |
+| ------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PUBLIC_BASE_URL`   | yes            | Absolute HTTPS origin at the edge (no path/query/fragment). Server derives `Host` from this.                                                                                                                  |
+| `POSTGRES_PASSWORD` | bundled DB     | Compose Postgres password; interpolated into `DATABASE_URL`. Not needed with an external database                                                                                                             |
+| `COMPOSE_PROFILES`  | bundled DB     | `bundled-db` runs Postgres inside the stack. Unset it for an external database                                                                                                                                |
+| `DATABASE_URL`      | external DB    | Full connection string. Setting it selects an [external database](#external-database) and disables the bundled Postgres                                                                                       |
+| `TRUSTED_PROXY`     | yes            | TCP peer IP of the edge as seen by the app. Same-LAN edge: the edge’s LAN IP. Edge arriving via the subnet router with Tailscale SNAT on: the router’s LAN IP. Honours `X-Forwarded-For` only from this peer. |
+| `APP_PORT`          | no (dflt 8080) | Host-side published port. The container always listens on `8080`; set this when `8080` is taken on the host, and point the edge at the same value                                                             |
+| `IMAGE`             | deploy arg     | Passed as the `deploy.sh` argument, not stored in `.env`: content digest (`registry/name@sha256:…`) — **never** `latest`. A full 40-char SHA tag is accepted only for manual rollback of a pre-digest deploy  |
 
 By default `DATABASE_URL` is composed by `compose.yaml` / `deploy.sh` against the private `postgres` service. Do not publish Postgres to the host.
 
@@ -218,10 +228,12 @@ On a host that has **never** run this stack, create the Compose network before t
 | `DOCKERHUB_TOKEN`                        | Push credentials                                                                                                                                                                   |
 | `DEPLOY_HOST`                            | SSH destination: Compose LXC LAN IP (`192.168.0.202`). The runner reaches it via the subnet route after joining Tailscale — not MagicDNS / `100.x` (the LXC is not on the tailnet) |
 | `DEPLOY_USER`                            | SSH user                                                                                                                                                                           |
-| `DEPLOY_SSH_KEY`                         | Private key (least-privilege deploy key). Ordinary SSH, not Tailscale SSH.                                                                                                         |
+| `DEPLOY_SSH_KEY`                         | Private key (least-privilege deploy key), unencrypted, whole file including both `-----BEGIN/END-----` lines. Ordinary SSH, not Tailscale SSH.                                     |
 | `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` | Tailscale OAuth client (write `auth_keys`, tagged `tag:ci`). Required when the runner must join the tailnet to reach `:22`.                                                        |
 
 Workflow env: `REGISTRY=docker.io`, `IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/go-clipboard`. Deploys use the `production` GitHub Environment.
+
+**Configure SSH** rejects a `DEPLOY_SSH_KEY` that is passphrase-protected, public-half-only, or line-folded, and prints the fingerprint of the key CI will offer. **Verify SSH auth** then proves the key before any `scp` runs, so a rejected key fails on its own named step instead of surfacing as a confusing error inside a later step. The SSH client config sets `PreferredAuthentications publickey` and `BatchMode yes`: a runner has no TTY, so password fallback can only fail, and letting it try turns a plain `Permission denied (publickey)` into two misleading `Permission denied, please try again.` lines. A failure here is server-side — the key is not in `authorized_keys` for `DEPLOY_USER`, `StrictModes` is rejecting home directory permissions, or `sshd` disallows the user. See [Verify as the deploy user](#3-verify-as-the-deploy-user).
 
 ## CI over Tailscale
 
@@ -279,7 +291,7 @@ Set `DEPLOY_HOST` to the Compose LXC LAN IP (`192.168.0.202`). Approve the subne
 
 ### Workflow step
 
-[`publish-and-deploy`](.github/workflows/ci.yml) already includes this before **Configure SSH**:
+`[publish-and-deploy](.github/workflows/ci.yml)` already includes this before **Configure SSH**:
 
 ```yaml
 - name: Tailscale
@@ -304,7 +316,7 @@ Commit the scanned lines. A pin for MagicDNS / `100.x` will not match this desti
 
 ### Alternative: ProxyJump through the public VPS
 
-If the Caddy VPS is already on Tailscale (with subnet routes accepted) and has public SSH, the runner can SSH to the VPS and jump to `192.168.0.202`. Then the Tailscale Action is unnecessary, but the VPS must expose SSH and [`deploy/known_hosts`](deploy/known_hosts) must pin **both** hosts. Prefer joining the runner to the tailnet when CI is meant to SSH to the Compose host directly.
+If the Caddy VPS is already on Tailscale (with subnet routes accepted) and has public SSH, the runner can SSH to the VPS and jump to `192.168.0.202`. Then the Tailscale Action is unnecessary, but the VPS must expose SSH and `[deploy/known_hosts](deploy/known_hosts)` must pin **both** hosts. Prefer joining the runner to the tailnet when CI is meant to SSH to the Compose host directly.
 
 ## CI / CD
 
@@ -318,8 +330,9 @@ On push to `main` only (after gate + image):
 1. Load the image artifact and push tags: `<repo>:<full-git-sha>` and `<repo>:latest` (`latest` is convenience only)
 2. Deploy target is the **content digest** (`<repo>@sha256:…`) read back from `RepoDigests`; the SHA tag is a pointer, not the identity. The `Guard deploy image digest` step refuses anything that is not a well-formed `sha256:` digest, and `deploy.sh` rejects moving tags again on the host
 3. Join Tailscale (ephemeral `tag:ci` node, `--accept-routes`)
-4. SCP `compose.yaml` + deploy/backup/restore scripts to `/opt/go-clipboard`
-5. SSH: `deploy.sh <digest-image> [previous-digest-image]`
+4. Configure SSH, then verify publickey auth before anything is copied
+5. SCP `compose.yaml` + deploy/backup/restore scripts to `/opt/go-clipboard`
+6. SSH: `deploy.sh <digest-image> [previous-digest-image]`
 
 Deploys are serialized (`concurrency: production-deploy`). Workflow-level `cancel-in-progress` is off on `main` so a new push cannot abort an in-flight SSH deploy.
 
