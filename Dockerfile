@@ -3,7 +3,7 @@
 # --- Frontend production build ------------------------------------------------
 FROM node:22-bookworm AS frontend
 WORKDIR /src
-RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
+RUN corepack enable && corepack prepare pnpm@11.1.2 --activate
 COPY web/package.json web/pnpm-lock.yaml ./web/
 RUN cd web && pnpm install --frozen-lockfile
 COPY web/ ./web/
