@@ -167,10 +167,14 @@ If the Docker Hub repository is private, also run `docker login` once as `DEPLOY
 A fourth check covers the SSH identity CI uses, which is the one thing the three above cannot see. Compare the fingerprint the workflow’s **Configure SSH** step prints against the host’s `authorized_keys`, and confirm `sshd` will honour it:
 
 ```bash
-sudo -u "$DEPLOY_USER" -H ssh-keygen -lf ~/.ssh/authorized_keys
-sudo ls -ld ~"$DEPLOY_USER" ~"$DEPLOY_USER"/.ssh ~"$DEPLOY_USER"/.ssh/authorized_keys
+DEPLOY_HOME="$(getent passwd "$DEPLOY_USER" | cut -d: -f6)"
+
+sudo -u "$DEPLOY_USER" -H bash -lc 'ssh-keygen -lf ~/.ssh/authorized_keys'
+sudo ls -ld "$DEPLOY_HOME" "$DEPLOY_HOME/.ssh" "$DEPLOY_HOME/.ssh/authorized_keys"
 sudo sshd -T | grep -Ei 'pubkeyauth|authorizedkeysfile|allowusers|allowgroups'
 ```
+
+Neither command may spell the home directory as a tilde, which is why the first defers `~` to an inner login shell and the second resolves the path up front. Tilde expansion happens in the shell you type into, before `sudo` changes user: run as `root`, a bare `sudo -u "$DEPLOY_USER" ssh-keygen -lf ~/.ssh/authorized_keys` reads `/root/.ssh/authorized_keys` as the deploy user and fails with a misleading `Permission denied`, and `-H` cannot save it because the argument was expanded before `sudo` ever ran. `~"$DEPLOY_USER"` fails differently: a quoted tilde-prefix is not expanded at all, so it stays the literal string `~smol`.
 
 `sshd` enforces `StrictModes`: a group- or world-writable home directory makes it ignore `authorized_keys` entirely and refuse the key without logging anything on the client side. Want `.ssh` at `700` and `authorized_keys` at `600`.
 
@@ -233,7 +237,7 @@ On a host that has **never** run this stack, create the Compose network before t
 
 Workflow env: `REGISTRY=docker.io`, `IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/go-clipboard`. Deploys use the `production` GitHub Environment.
 
-**Configure SSH** rejects a `DEPLOY_SSH_KEY` that is passphrase-protected, public-half-only, or line-folded, and prints the fingerprint of the key CI will offer. **Verify SSH auth** then proves the key before any `scp` runs, so a rejected key fails on its own named step instead of surfacing as a confusing error inside a later step. The SSH client config sets `PreferredAuthentications publickey` and `BatchMode yes`: a runner has no TTY, so password fallback can only fail, and letting it try turns a plain `Permission denied (publickey)` into two misleading `Permission denied, please try again.` lines. A failure here is server-side — the key is not in `authorized_keys` for `DEPLOY_USER`, `StrictModes` is rejecting home directory permissions, or `sshd` disallows the user. See [Verify as the deploy user](#3-verify-as-the-deploy-user).
+**Configure SSH** rejects a `DEPLOY_SSH_KEY` that is passphrase-protected, public-half-only, or line-folded, and prints the fingerprint of the key CI will offer. **Verify SSH auth** then proves the key before any `scp` runs, so a rejected key fails on its own named step instead of surfacing as a confusing error inside a later step. The SSH client config sets `PreferredAuthentications publickey` and `BatchMode yes`: a runner has no TTY, so password fallback can only fail, and letting it try turns a plain `Permission denied (publickey)` into two misleading `Permission denied, please try again.` lines. A failure here is server-side — the key is not in `authorized_keys` for `DEPLOY_USER`, `StrictModes` is rejecting home directory permissions, `sshd` disallows the user, or `DEPLOY_USER` names an account that does not hold the key. That last cause is indistinguishable from the others in the log: Actions masks the secret, so the handshake reads `Authenticating to ***:22 as '***'` and a nonexistent or wrong account produces the same `Permission denied (publickey,password)` as a missing key. Settle it from the host side by fingerprint — run `ssh-keygen -lf ~USER/.ssh/authorized_keys` for the account you believe `DEPLOY_USER` names, and confirm the key CI printed is listed there and not only under some other user. See [Verify as the deploy user](#3-verify-as-the-deploy-user).
 
 ## CI over Tailscale
 
