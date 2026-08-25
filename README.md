@@ -1,6 +1,6 @@
 # go-clipboard
 
-Online clipboard built with Go, inspired by [cl1p](https://cl1p.net). This repository currently ships a **development walking skeleton** with the first vertical slice: **paste and read** clips locally (create on `/`, open `/<name>` on another device). That flow is for local testing only — it is not publishable until later slices add rate limiting and deployment.
+Online clipboard built with Go, inspired by [cl1p](https://cl1p.net). Local development covers paste-and-read clips; production packaging (container image, edge-terminated TLS, CI deploy) is in place. Public exposure remains gated by a later slice.
 
 ## Prerequisites
 
@@ -62,7 +62,37 @@ curl -s -X POST http://localhost:3000/api/clips \
 curl -s http://localhost:3000/api/clips/demo-clip | jq
 ```
 
-Go serves only `/api/*`. Product intent stays in [`docs/slices/`](docs/slices/); grow the OpenAPI file in the same change as each new handler.
+In development, Go serves `/api/*` behind Caddy; Vite owns the UI. In production the Go binary serves the embedded frontend (SPA fallback) and `/api/*` over plain HTTP behind an edge that terminates TLS.
+
+Product intent stays in [`docs/slices/`](docs/slices/); grow the OpenAPI file in the same change as each new handler.
+
+## Deployment
+
+Production runs as Docker Compose on a private LXC (e.g. homelab via Portainer), reached from a public edge proxy (e.g. Caddy on a VPS) through a Tailscale **subnet router** onto the LAN. The edge owns TLS; the app serves plain HTTP with the embedded frontend and API, published on the host's `APP_PORT` (default `8080`). Exactly one app instance is required (sweeper, deployment locking, in-process limiter). Setup progress is the checklist in [`DEPLOYMENT.md`](DEPLOYMENT.md#setup-checklist).
+
+### Artefacts
+
+| Path | Role |
+| --- | --- |
+| `Dockerfile` | Multi-stage image: `pnpm build` → Go embed → distroless non-root binary |
+| `compose.yaml` | App (`APP_PORT` → container `8080`) + Postgres |
+| `.github/workflows/ci.yml` | Gate (`make test`/`lint`, sqlc drift, image build + smoke) on every commit; publish + SSH deploy on `main` |
+| `deploy/deploy.sh` | Host-side migrate → health-gated swap; rejects `latest` |
+| `deploy/backup.sh` / `deploy/restore.sh` | Nightly `pg_dump` excluding ephemeral `clips` |
+
+### Required secrets / env
+
+**CI (GitHub Actions secrets):** `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `DEPLOY_HOST` (LXC LAN IP), `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`. Pin that same LAN IP in committed `deploy/known_hosts` (never `StrictHostKeyChecking=no`). The deploy job joins Tailscale (`tag:ci`, `--accept-routes`) before SSH.
+
+**Host env file** (next to `compose.yaml`, from `deploy/env.example`): `PUBLIC_BASE_URL` (absolute HTTPS origin at the edge), `POSTGRES_PASSWORD`, `TRUSTED_PROXY` (edge proxy IP as seen by the app). `IMAGE` is set by the deploy script to a content digest (`registry/name@sha256:…`) — never `latest`.
+
+### Rollback
+
+Redeploy the previous digest with `deploy/deploy.sh <previous-image-ref>` only — do not swap the app container by hand. Do **not** migrate down. Each release runs the deployment script’s compatibility checks (previous image healthy against the migrated schema) before swapping.
+
+### Health contract
+
+`GET /api/health` returns **200** only when the database is reachable and migrations are not pending; otherwise **503**. That confirms database reachability and migration state, not that application queries are compatible with the migrated schema — rely on the deployment script’s compatibility checks for that. A half-landed deploy (new image, un-migrated schema) is still detectable by status code alone.
 
 ## Gotchas
 
@@ -77,7 +107,7 @@ In `web/vite.config.ts`, register `tanstackRouter({ target: 'react' })` **before
 
 ### Migrations are deliberate
 
-The server never applies migrations on startup. Run `make migrate` after adding migration files. `/api/health` reports pending migrations instead of failing mysteriously at query time.
+The server never applies migrations on startup. Run `make migrate` locally, or `migrate up` via the image as an explicit deploy step. `/api/health` returns 503 while migrations are pending (and when the database is unreachable).
 
 ### Homebrew `DATABASE_URL`
 
@@ -87,11 +117,19 @@ Copy `.env.example`, not a generic `postgres:postgres@localhost` URL, and substi
 
 The health endpoint only reports what it observed. If the pending-migration check fails — usually because Postgres is unreachable — the `migrations` block is left out of the response entirely rather than defaulting to "not pending, version 0", and the status page shows the state as unknown.
 
-## Architecture (development)
+## Architecture
 
-```
+**Development**
+
+```text
 browser → Caddy :3000 ─┬─ /api/* → Go :8080 → Postgres
                        └─ /*     → Vite :5173 (HMR)
 ```
 
-Go serves **only** `/api/*`. Static assets and SPA routing stay in the frontend/proxy layer.
+**Production**
+
+```text
+browser → edge Caddy (TLS) → Tailscale → subnet router
+       → LAN Compose LXC, Go :$APP_PORT ─┬─ /api/* → handlers → Postgres
+                                         └─ /*     → embedded SPA (go:embed)
+```

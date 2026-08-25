@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -19,6 +20,7 @@ import (
 	appmigrate "github.com/0adnyana/go-clipboard/internal/migrate"
 	"github.com/0adnyana/go-clipboard/internal/ratelimit"
 	"github.com/0adnyana/go-clipboard/internal/sweeper"
+	"github.com/0adnyana/go-clipboard/internal/webui"
 )
 
 type querierClock struct {
@@ -115,6 +117,11 @@ func runServe(logger *slog.Logger) error {
 		MaxKeys: cfg.RateLimit.MaxKeys,
 	})
 
+	staticFS, err := loadStaticFS(cfg)
+	if err != nil {
+		return err
+	}
+
 	server, err := httpapi.NewServer(logger, httpapi.Dependencies{
 		Clips: clipSvc,
 		Health: httpapi.HealthDependencies{
@@ -130,14 +137,11 @@ func runServe(logger *slog.Logger) error {
 				IPv6Prefix:   cfg.IPv6Prefix,
 			},
 		},
+		StaticFS:    staticFS,
+		TLSHostname: cfg.TLSHostname,
 	})
 	if err != nil {
 		return err
-	}
-	addr := fmt.Sprintf(":%d", cfg.Port)
-	httpServer := &http.Server{
-		Addr:    addr,
-		Handler: server.Handler(),
 	}
 
 	runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -164,6 +168,32 @@ func runServe(logger *slog.Logger) error {
 	}
 	defer waitSweeper(shutdownTimeout)
 
+	return serveHTTP(runCtx, logger, cfg, server.Handler())
+}
+
+// loadStaticFS returns the embedded frontend when running with a public base
+// URL (production), and nil in local development so Vite/Caddy keep owning
+// static delivery.
+func loadStaticFS(cfg config.Config) (fs.FS, error) {
+	if cfg.PublicBaseURL == "" {
+		return nil, nil
+	}
+	return webui.FS()
+}
+
+func serveHTTP(runCtx context.Context, logger *slog.Logger, cfg config.Config, handler http.Handler) error {
+	addr := fmt.Sprintf(":%d", cfg.Port)
+	// Bounds cover the largest accepted request (~256 KiB clip body) and static
+	// asset responses while refusing peers that hold connections open forever.
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("server listening", slog.String("addr", addr))
@@ -173,6 +203,10 @@ func runServe(logger *slog.Logger) error {
 		close(errCh)
 	}()
 
+	return waitAndShutdown(runCtx, logger, errCh, httpServer)
+}
+
+func waitAndShutdown(runCtx context.Context, logger *slog.Logger, errCh <-chan error, httpServer *http.Server) error {
 	select {
 	case err := <-errCh:
 		if err != nil {

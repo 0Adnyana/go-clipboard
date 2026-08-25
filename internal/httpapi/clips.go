@@ -3,12 +3,12 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
-	"io"
-	"log/slog"
-	"net/http"
 	"github.com/0adnyana/go-clipboard/internal/clips"
 	"github.com/0adnyana/go-clipboard/internal/openapi"
 	"github.com/0adnyana/go-clipboard/internal/slug"
+	"io"
+	"log/slog"
+	"net/http"
 )
 
 const maxCreateBodyBytes = clips.MaxBodyBytes + 4096 // room for JSON framing

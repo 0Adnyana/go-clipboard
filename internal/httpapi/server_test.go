@@ -34,8 +34,9 @@ func TestRouting_registeredRouteIsServed(t *testing.T) {
 	rec := httptest.NewRecorder()
 	newTestHandler(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/health", nil))
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
+	// No health deps → degraded contract → 503; the route itself is still served.
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
 		t.Fatalf("Content-Type = %q, want application/json", ct)
@@ -118,10 +119,10 @@ func TestNewServer_routeTableContainsEveryProductionRoute(t *testing.T) {
 	srv := newTestServer(t)
 
 	want := map[string]string{
-		http.MethodGet + " /api/health":                        "",
-		http.MethodPost + " /api/clips":                        "",
-		http.MethodGet + " /api/clips/{slug}":                  "",
-		http.MethodGet + " /api/clips/{slug}/availability":     "",
+		http.MethodGet + " /api/health":                    "",
+		http.MethodPost + " /api/clips":                    "",
+		http.MethodGet + " /api/clips/{slug}":              "",
+		http.MethodGet + " /api/clips/{slug}/availability": "",
 	}
 	for _, route := range srv.routes {
 		key := route.method + " " + route.path

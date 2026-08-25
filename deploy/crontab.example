@@ -1,0 +1,9 @@
+# Install on the production host (adjust paths and BACKUP_REMOTE):
+#   sudo cp deploy/crontab.example /etc/cron.d/go-clipboard
+#   sudo chmod 644 /etc/cron.d/go-clipboard
+#
+# Nightly dump of non-ephemeral data to local disk, then rsync off-box.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+0 3 * * * root COMPOSE_DIR=/opt/go-clipboard BACKUP_REMOTE=user@backup-host:/backups/go-clipboard /opt/go-clipboard/backup.sh >>/var/log/go-clipboard-backup.log 2>&1

@@ -1,0 +1,15 @@
+.git
+.github
+.env
+.tmp
+/tmp
+/bin
+/dist
+web/node_modules
+web/dist
+openspec
+docs/slices
+**/*_test.go
+*.md
+!go.mod
+!go.sum
