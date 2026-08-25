@@ -54,13 +54,29 @@ Operator progress for this homelab. Details for each item are in [First-time hos
 ### Compose host (LXC)
 
 - [x] Deploy key’s public half in `~/.ssh/authorized_keys` for `DEPLOY_USER`
-- [ ] `/opt/go-clipboard` bootstrapped (`compose.yaml`, scripts, `.env` from `deploy/env.example`)
+- [ ] `/opt/go-clipboard` exists and is **owned by `DEPLOY_USER`**
+- [ ] `/opt/go-clipboard/.env` written from [`deploy/env.example`](deploy/env.example), readable by `DEPLOY_USER`
+- [ ] `DEPLOY_USER` in the `docker` group
+- [ ] Host can pull the image (`docker login` as `DEPLOY_USER` if the Docker Hub repository is private)
 - [ ] LXC `:22` not published on the public internet
 
 ### First deploy
 
-- [ ] Push to `main` (includes `--accept-routes`) so `publish-and-deploy` runs
+- [ ] Open a PR to `main` first — runs the gate and image build, deploys nothing
+- [ ] Merge to `main` (includes `--accept-routes`) so `publish-and-deploy` runs
 - [ ] `GET https://<hostname>/api/health` through the edge returns 200
+
+### Order of operations
+
+Host bootstrap and the first push are independent, but this order gives the earliest feedback:
+
+1. **Open a PR to `main`.** The workflow runs on `pull_request`, while `publish-and-deploy` is gated on `github.ref == 'refs/heads/main' && github.event_name == 'push'`. A PR therefore exercises the gate, the image build, and `smoke-test.sh` while deploying nothing.
+2. **Bootstrap the host while CI runs** — see [First-time host setup](#first-time-host-setup).
+3. **Merge.** `publish-and-deploy` then runs against a host that is already ready.
+
+Pushing to `main` before the host is bootstrapped is safe, just not useful. `deploy.sh` sources `.env` before it takes the lock and before any `docker pull` or `compose up`, so a missing env file aborts the run without touching the host: nothing is left half-started and no `deployed-sha` is written.
+
+Only a real deploy exercises the Tailscale join, the subnet route, and the `known_hosts` pin. A PR cannot.
 
 ## Usual setup: CI deploys, Portainer watches
 
@@ -86,30 +102,79 @@ Do **not** recreate that stack from Git in Portainer. Do not let a Portainer Git
 
 ## First-time host setup
 
-1. Provision a private host with Docker and Compose. Default deploy directory: `/opt/go-clipboard`.
-2. Ensure the public edge can reach `192.168.0.202:<APP_PORT>` (LAN or Tailscale → subnet router); point DNS at the edge.
-3. Bootstrap Compose and scripts from a **scratch clone** (CI also syncs these on each deploy). Do not leave a working tree on the host:
+CI syncs `compose.yaml` and the deploy scripts to `/opt/go-clipboard` on **every** deploy. Do not clone this repository onto the host or copy those files by hand — the only file CI never writes is `.env`.
 
-   ```bash
-   git clone https://github.com/0adnyana/go-clipboard.git /tmp/go-clipboard
-   cd /tmp/go-clipboard
+Three things must be true before the first deploy. All three are about identity: `deploy.sh` runs entirely as `DEPLOY_USER` over SSH, and contains no `sudo` anywhere.
 
-   sudo mkdir -p /opt/go-clipboard
-   sudo cp compose.yaml deploy/deploy.sh deploy/backup.sh deploy/restore.sh /opt/go-clipboard/
-   sudo chmod +x /opt/go-clipboard/deploy.sh /opt/go-clipboard/backup.sh /opt/go-clipboard/restore.sh
+| Requirement                                | Why                                                          |
+| ------------------------------------------ | -------------------------------------------------------------- |
+| `/opt/go-clipboard` owned by `DEPLOY_USER` | CI `scp`s `compose.yaml` and the scripts into it              |
+| `.env` readable by `DEPLOY_USER`           | `deploy.sh` sources it                                         |
+| `DEPLOY_USER` in the `docker` group        | `deploy.sh` runs `docker pull` / `docker run` / `compose`     |
 
-   sudo cp deploy/env.example /opt/go-clipboard/.env
-   sudo chmod 600 /opt/go-clipboard/.env
-   # edit PUBLIC_BASE_URL, POSTGRES_PASSWORD, TRUSTED_PROXY
+Ownership is the easy thing to get wrong. A root-owned directory fails CI’s `scp`; a root-owned mode-600 `.env` fails `deploy.sh` at `source`. Neither surfaces until the first deploy.
 
-   rm -rf /tmp/go-clipboard
-   ```
+### 1. Prepare the host
 
-   Later deploys overwrite Compose and scripts via SCP; they do **not** touch `.env`.
+Provision a private host with Docker and the Compose v2 plugin. Ensure the public edge can reach `192.168.0.202:<APP_PORT>` (LAN, or Tailscale → subnet router), and point DNS at the edge rather than at this host.
 
-4. Pin the host’s SSH host key into committed [`deploy/known_hosts`](deploy/known_hosts) (never `StrictHostKeyChecking=no`). Scan the same address CI will use — the LXC LAN IP (`192.168.0.202`), not a MagicDNS / `100.x` name (this host has none). See [CI over Tailscale](#ci-over-tailscale).
-5. Configure GitHub Actions secrets and the `production` environment (see below).
-6. First deploy: push to `main` (or run `deploy.sh` manually with a digest-pinned image). Verify `GET https://<hostname>/api/health` through the edge.
+Then, as a sudo-capable user:
+
+```bash
+DEPLOY_USER=<value of the DEPLOY_USER Actions secret>
+
+sudo mkdir -p /opt/go-clipboard
+sudo chown "$DEPLOY_USER:$DEPLOY_USER" /opt/go-clipboard
+sudo usermod -aG docker "$DEPLOY_USER"   # harmless if already a member
+```
+
+The `chown` is unnecessary only when `DEPLOY_USER` is `root`.
+
+### 2. Write the host env file
+
+Create `/opt/go-clipboard/.env` from [`deploy/env.example`](deploy/env.example). Writing it *as* `DEPLOY_USER` sidesteps the ownership trap:
+
+```bash
+sudo -u "$DEPLOY_USER" tee /opt/go-clipboard/.env >/dev/null <<'EOF'
+PUBLIC_BASE_URL=https://clip.example.com
+COMPOSE_PROFILES=bundled-db
+POSTGRES_PASSWORD=change-me
+APP_PORT=8082
+TRUSTED_PROXY=192.168.0.1
+EOF
+sudo chmod 600 /opt/go-clipboard/.env
+```
+
+Replace every placeholder; [Host env](#host-env-optgo-clipboardenv) explains what each one means. Two traps while editing:
+
+- **This file is sourced as shell**, not parsed as key-value pairs. A `POSTGRES_PASSWORD` containing `$`, a backtick, or an unquoted `#` will expand, execute, or truncate. Use an alphanumeric password, or single-quote the value.
+- **Never add an `IMAGE=` line** — see [Host env](#host-env-optgo-clipboardenv) for why a stored value defeats the moving-tag check.
+
+Later deploys overwrite Compose and the scripts via `scp`; they never touch `.env`.
+
+### 3. Verify as the deploy user
+
+These three checks mirror what `deploy.sh` does, and catch every permission problem above before CI hits it:
+
+```bash
+sudo -u "$DEPLOY_USER" -H bash -lc 'docker info >/dev/null && echo "docker ok"'
+sudo -u "$DEPLOY_USER" -H bash -lc 'touch /opt/go-clipboard/.probe && rm /opt/go-clipboard/.probe && echo "write ok"'
+sudo -u "$DEPLOY_USER" -H bash -lc 'set -a; . /opt/go-clipboard/.env; set +a; echo "$PUBLIC_BASE_URL $TRUSTED_PROXY"'
+```
+
+If the Docker Hub repository is private, also run `docker login` once as `DEPLOY_USER`: `deploy.sh` pulls with the host’s own credentials, not CI’s. The health probe additionally pulls `curlimages/curl:8.5.0`, so the host needs outbound internet either way.
+
+### 4. Pin the SSH host key
+
+Pin the host’s SSH host key into committed [`deploy/known_hosts`](deploy/known_hosts) (never `StrictHostKeyChecking=no`). Scan the same address CI will use — the LXC LAN IP (`192.168.0.202`), not a MagicDNS / `100.x` name (this host has none). See [CI over Tailscale](#ci-over-tailscale).
+
+### 5. Configure GitHub
+
+Add the Actions secrets and the `production` environment — see [GitHub Actions secrets](#github-actions-secrets).
+
+### 6. First deploy
+
+Merge to `main` (or run `deploy.sh` manually with a digest-pinned image), then confirm `GET https://<hostname>/api/health` through the edge returns 200.
 
 Optional: install nightly backups from [`deploy/crontab.example`](deploy/crontab.example) and set `BACKUP_REMOTE`.
 
@@ -131,6 +196,8 @@ From [`deploy/env.example`](deploy/env.example). Secrets stay on the host — ne
 
 By default `DATABASE_URL` is composed by `compose.yaml` / `deploy.sh` against the private `postgres` service. Do not publish Postgres to the host.
 
+`TRUSTED_PROXY` does not have to be right on the first deploy. Startup only requires a parseable IP, so a wrong-but-valid address still boots and still passes the health gate — the app simply ignores `X-Forwarded-For` and keys rate limits to the proxy’s own address instead of the real client. That is degraded, not broken. Correct it by editing `.env` and running `docker compose up -d app` on the host; no redeploy and no rebuild. An unparseable value, by contrast, fails startup outright and names the offending variable in the log.
+
 ### External database
 
 The bundled Postgres is the `postgres` service behind the `bundled-db` Compose profile. To run against a managed or otherwise external database, edit the host `.env`: comment out `COMPOSE_PROFILES` and `POSTGRES_PASSWORD`, and set `DATABASE_URL` to the full connection string (managed providers normally require `sslmode=require`).
@@ -140,6 +207,8 @@ That single variable drives everything. `deploy.sh` skips `compose up -d postgre
 Two things to know. `DATABASE_URL` must be set in the host `.env`, because `compose.yaml` lists it under `environment:`, which takes precedence over `env_file`; `deploy.sh` exports it so both agree. And switching an existing deployment does not migrate data or remove the old container — dump with `backup.sh` first, restore into the new database, then `docker compose down` the stale `postgres` service. The `pgdata` volume is left in place.
 
 Keep `IMAGE` out of the host `.env`. `deploy.sh` validates its image argument first and sources the env file afterwards, so a stored `IMAGE=` line would silently replace the deploy target after the moving-tag check has already passed.
+
+On a host that has **never** run this stack, create the Compose network before the first external-database deploy — `docker network create go-clipboard_internal`. `deploy.sh` skips `compose up -d postgres` whenever `DATABASE_URL` is set, and that skipped step is what would otherwise create the network its `migrate` and candidate containers attach to. Hosts that previously ran the bundled profile already have it.
 
 ### GitHub Actions secrets
 
