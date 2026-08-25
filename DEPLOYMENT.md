@@ -75,7 +75,7 @@ Do **not** recreate that stack from Git in Portainer. Do not let a Portainer Git
 | Path                                                                              | Role                                                                           |
 | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | [`Dockerfile`](Dockerfile)                                                        | Multi-stage: `pnpm build` → Go embed → distroless non-root binary + migrations |
-| [`compose.yaml`](compose.yaml)                                                    | App (`APP_PORT` → container `8080`) + Postgres 18 (named volume `pgdata`)      |
+| [`compose.yaml`](compose.yaml)                                                    | App (`APP_PORT` → container `8080`) + optional Postgres 18 (`bundled-db` profile, named volume `pgdata`) |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml)                            | Gate on every commit; publish + SSH deploy on `main`                           |
 | [`deploy/deploy.sh`](deploy/deploy.sh)                                            | Host-side: migrate → compatibility check → health-gated swap; rejects `latest` |
 | [`deploy/smoke-test.sh`](deploy/smoke-test.sh)                                    | CI local smoke (migrate, non-root user, health, SPA, 503 while pending)        |
@@ -122,12 +122,22 @@ From [`deploy/env.example`](deploy/env.example). Secrets stay on the host — ne
 | Variable            | Required      | Purpose                                                                                                                                                                                                       |
 | ------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PUBLIC_BASE_URL`   | yes           | Absolute HTTPS origin at the edge (no path/query/fragment). Server derives `Host` from this.                                                                                                                  |
-| `POSTGRES_PASSWORD` | yes           | Compose Postgres password; interpolated into `DATABASE_URL`                                                                                                                                                   |
+| `POSTGRES_PASSWORD` | bundled DB    | Compose Postgres password; interpolated into `DATABASE_URL`. Not needed with an external database                                                                                                             |
+| `COMPOSE_PROFILES`  | bundled DB    | `bundled-db` runs Postgres inside the stack. Unset it for an external database                                                                                                                                |
+| `DATABASE_URL`      | external DB   | Full connection string. Setting it selects an [external database](#external-database) and disables the bundled Postgres                                                                                       |
 | `TRUSTED_PROXY`     | yes           | TCP peer IP of the edge as seen by the app. Same-LAN edge: the edge’s LAN IP. Edge arriving via the subnet router with Tailscale SNAT on: the router’s LAN IP. Honours `X-Forwarded-For` only from this peer. |
 | `APP_PORT`          | no (dflt 8080) | Host-side published port. The container always listens on `8080`; set this when `8080` is taken on the host, and point the edge at the same value                                                            |
 | `IMAGE`             | deploy arg    | Passed as the `deploy.sh` argument, not stored in `.env`: content digest (`registry/name@sha256:…`) — **never** `latest`. A full 40-char SHA tag is accepted only for manual rollback of a pre-digest deploy  |
 
-`DATABASE_URL` is composed by `compose.yaml` / `deploy.sh` against the private `postgres` service. Do not publish Postgres to the host.
+By default `DATABASE_URL` is composed by `compose.yaml` / `deploy.sh` against the private `postgres` service. Do not publish Postgres to the host.
+
+### External database
+
+The bundled Postgres is the `postgres` service behind the `bundled-db` Compose profile. To run against a managed or otherwise external database, edit the host `.env`: comment out `COMPOSE_PROFILES` and `POSTGRES_PASSWORD`, and set `DATABASE_URL` to the full connection string (managed providers normally require `sslmode=require`).
+
+That single variable drives everything. `deploy.sh` skips `compose up -d postgres`, passes the external URL to the migrate, candidate, and rollback-check containers, and `backup.sh` / `restore.sh` switch from `compose exec postgres` to `pg_dump` / `psql` in a throwaway `postgres:18-alpine` container. Set `PG_CLIENT_IMAGE` if the external server's major version is newer than that image. The application itself needs no change — it treats `DATABASE_URL` as opaque.
+
+Two things to know. `DATABASE_URL` must be set in the host `.env`, because `compose.yaml` lists it under `environment:`, which takes precedence over `env_file`; `deploy.sh` exports it so both agree. And switching an existing deployment does not migrate data or remove the old container — dump with `backup.sh` first, restore into the new database, then `docker compose down` the stale `postgres` service. The `pgdata` volume is left in place.
 
 Keep `IMAGE` out of the host `.env`. `deploy.sh` validates its image argument first and sources the env file afterwards, so a stored `IMAGE=` line would silently replace the deploy target after the moving-tag check has already passed.
 
@@ -330,4 +340,4 @@ Misconfigured `TRUSTED_PROXY` breaks rate-limit client identity; wrong `Host` / 
 - **Secrets outside image** — rotate by editing host `.env` / CI secrets; no rebuild required for secret-only changes.
 - **Logs** — stdout/stderr only; collected by the container runtime.
 - **One Compose owner** — CI `deploy.sh` owns `compose up`; Portainer does not recreate the stack from Git.
-- **Out of scope here** — staging, blue/green, metrics/alerting, managed Postgres (easy upgrade later), shipping the public edge Caddyfile in-repo.
+- **Out of scope here** — staging, blue/green, metrics/alerting, shipping the public edge Caddyfile in-repo.

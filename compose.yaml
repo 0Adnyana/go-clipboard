@@ -13,16 +13,28 @@
 #
 # Logs go to stdout/stderr and are collected by the container runtime — there
 # is no logging agent.
+#
+# The database ships bundled as the `postgres` service under the `bundled-db`
+# profile. Setting DATABASE_URL in the host env file and dropping that profile
+# points the app at an external or managed database instead.
 
 name: go-clipboard
 
 services:
+  # Bundled database, enabled by the `bundled-db` Compose profile that
+  # deploy/env.example sets. To run against a database outside this stack,
+  # drop that profile and set DATABASE_URL in the host env file instead.
   postgres:
+    profiles:
+      - bundled-db
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: clipboard
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the host env file}
+      # Not marked required here: interpolation runs before profiles are
+      # applied, so a required-marker would also fire when this service is
+      # disabled for an external database. deploy.sh enforces it instead.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
       POSTGRES_DB: go_clipboard
     volumes:
       # PG 18+ stores data under /var/lib/postgresql/<major>/docker — mount the
@@ -45,10 +57,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+        # Absent when the bundled-db profile is off (external database).
+        required: false
     env_file:
       - ${ENV_FILE:-.env}
     environment:
-      DATABASE_URL: postgres://clipboard:${POSTGRES_PASSWORD}@postgres:5432/go_clipboard?sslmode=disable
+      # Set DATABASE_URL in the host env file to use a database outside this
+      # stack; the default targets the bundled postgres service. This entry
+      # must stay in sync with the fallback in deploy.sh, and it is listed
+      # here rather than left to env_file because `environment` wins over
+      # `env_file` — a bare env_file value would be silently ignored.
+      DATABASE_URL: ${DATABASE_URL:-postgres://clipboard:${POSTGRES_PASSWORD:-}@postgres:5432/go_clipboard?sslmode=disable}
       # Immediate peer that may set X-Forwarded-For (edge proxy Tailscale/LAN IP).
       TRUSTED_PROXY: ${TRUSTED_PROXY:?set TRUSTED_PROXY to the edge proxy IP}
       PORT: "8080"

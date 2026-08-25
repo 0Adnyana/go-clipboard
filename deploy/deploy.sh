@@ -85,11 +85,22 @@ set -a
 source "$ENV_FILE"
 set +a
 
-: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in $ENV_FILE}"
 : "${PUBLIC_BASE_URL:?PUBLIC_BASE_URL must be set in $ENV_FILE}"
 : "${TRUSTED_PROXY:?TRUSTED_PROXY must be set in $ENV_FILE}"
 
-DATABASE_URL="postgres://clipboard:${POSTGRES_PASSWORD}@postgres:5432/go_clipboard?sslmode=disable"
+# A DATABASE_URL in the env file selects an external database and turns off the
+# bundled postgres service; otherwise target the bundled one. Keep the fallback
+# identical to the DATABASE_URL default in compose.yaml.
+if [[ -n "${DATABASE_URL:-}" ]]; then
+  BUNDLED_DB=0
+  export COMPOSE_PROFILES=""
+else
+  BUNDLED_DB=1
+  export COMPOSE_PROFILES="bundled-db"
+  : "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD (bundled database) or DATABASE_URL (external database) in $ENV_FILE}"
+  DATABASE_URL="postgres://clipboard:${POSTGRES_PASSWORD}@postgres:5432/go_clipboard?sslmode=disable"
+fi
+
 # Host header must match PUBLIC_BASE_URL (enforced by the server).
 PUBLIC_HOST="${PUBLIC_BASE_URL#https://}"
 PUBLIC_HOST="${PUBLIC_HOST%%/*}"
@@ -111,10 +122,16 @@ if [[ -n "${EXPECTED_PREVIOUS_SHA:-}" && -f "$STATE_FILE" ]]; then
   fi
 fi
 
-export IMAGE ENV_FILE
+# DATABASE_URL is exported so compose interpolation resolves to the same target
+# the migrate and candidate containers below use.
+export IMAGE ENV_FILE DATABASE_URL
 
-echo "ensuring postgres is up"
-docker compose -f "$COMPOSE_DIR/compose.yaml" up -d postgres
+if [[ "$BUNDLED_DB" -eq 1 ]]; then
+  echo "ensuring bundled postgres is up"
+  docker compose -f "$COMPOSE_DIR/compose.yaml" up -d postgres
+else
+  echo "using external database from DATABASE_URL in $ENV_FILE"
+fi
 
 wait_healthy() {
   local target="$1"
