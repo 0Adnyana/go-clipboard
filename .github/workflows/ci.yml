@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -164,10 +165,10 @@ jobs:
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          # The action already passes --accept-routes to `tailscale up`, which
+          # is what lets us reach a Compose host on a LAN IP behind a subnet
+          # router. Passing it again via `args` makes `tailscale up` fail.
           tags: tag:ci
-          # Linux does not accept subnet routes by default; required when the
-          # Compose host is a LAN IP behind a Tailscale subnet router.
-          args: --accept-routes
 
       - name: Configure SSH
         env:

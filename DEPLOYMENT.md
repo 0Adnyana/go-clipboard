@@ -49,7 +49,7 @@ Operator progress for this homelab. Details for each item are in [First-time hos
 - [x] Actions secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `DEPLOY_HOST` (`192.168.0.202`), `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`
 - [x] GitHub Environment named `production` (the deploy job requires it)
 - [x] [`deploy/known_hosts`](deploy/known_hosts) pins `192.168.0.202` (same string as `DEPLOY_HOST`)
-- [x] Workflow Tailscale step has `args: --accept-routes` (commit this before the first deploy)
+- [x] Workflow Tailscale step passes no `args` (the action supplies `--accept-routes` on its own)
 
 ### Compose host (LXC)
 
@@ -63,7 +63,7 @@ Operator progress for this homelab. Details for each item are in [First-time hos
 ### First deploy
 
 - [ ] Open a PR to `main` first — runs the gate and image build, deploys nothing
-- [ ] Merge to `main` (includes `--accept-routes`) so `publish-and-deploy` runs
+- [ ] Merge to `main` so `publish-and-deploy` runs
 - [ ] `GET https://<hostname>/api/health` through the edge returns 200
 
 ### Order of operations
@@ -288,10 +288,9 @@ Set `DEPLOY_HOST` to the Compose LXC LAN IP (`192.168.0.202`). Approve the subne
     oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
     oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
     tags: tag:ci
-    args: --accept-routes
 ```
 
-The action creates an **ephemeral** node; Linux runners do not accept subnet routes unless `--accept-routes` is set. The job SSHs with `DEPLOY_SSH_KEY` as already written; the node logs out when the job ends.
+The action creates an **ephemeral** node. Linux runners do not accept subnet routes by default, but `tailscale/github-action@v4` already passes `--accept-routes` itself — do not add it through `args`, or `tailscale up` fails with `invalid boolean flag accept-routes: flag provided multiple times`. The job SSHs with `DEPLOY_SSH_KEY` as already written; the node logs out when the job ends.
 
 ### Pin `known_hosts` for the LAN address
 
