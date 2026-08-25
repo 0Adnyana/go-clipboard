@@ -225,9 +225,12 @@ jobs:
           ssh -v production true || true
           cat >&2 <<'EOF'
           Host-side checks, as a sudo-capable user on the Compose host. KEY is the
-          fingerprint the Configure SSH step printed above.
-            1. ssh-keygen -lf ~DEPLOY_USER/.ssh/authorized_keys   # must list KEY
-            2. ls -ld ~DEPLOY_USER ~DEPLOY_USER/.ssh ~DEPLOY_USER/.ssh/authorized_keys
+          fingerprint the Configure SSH step printed above. The handshake masks the
+          user as ***, so run check 1 against the account you believe DEPLOY_USER
+          names: a wrong or nonexistent user is refused exactly like a missing key.
+            1. sudo -u DEPLOY_USER -H bash -lc 'ssh-keygen -lf ~/.ssh/authorized_keys'   # lists KEY
+            2. HOME_DIR=$(getent passwd DEPLOY_USER | cut -d: -f6)
+               sudo ls -ld "$HOME_DIR" "$HOME_DIR/.ssh" "$HOME_DIR/.ssh/authorized_keys"
                sshd StrictModes refuses a group/world-writable HOME; want .ssh 700, authorized_keys 600
             3. sudo sshd -T | grep -Ei 'pubkeyauth|authorizedkeysfile|allowusers|denyusers|allowgroups'
             4. sudo journalctl -u ssh -n 50   # the server-side reason for the refusal
