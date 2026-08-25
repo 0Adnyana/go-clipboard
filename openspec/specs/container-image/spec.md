@@ -1,4 +1,10 @@
-## ADDED Requirements
+# container-image Specification
+
+## Purpose
+
+The production container image — a multi-stage build producing one immutable image per commit, identified by digest, with the frontend embedded in the server binary, an in-image migration runner, and CI smoke tests before publish.
+
+## Requirements
 
 ### Requirement: The application ships as a production container image
 

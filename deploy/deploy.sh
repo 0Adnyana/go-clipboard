@@ -24,6 +24,50 @@ reject_moving_tag() {
 
 reject_moving_tag "$IMAGE"
 
+image_identity() {
+  local ref="$1"
+  if [[ "$ref" == *@sha256:* ]]; then
+    printf '%s\n' "${ref##*@}"
+    return
+  fi
+  printf '%s\n' "${ref##*:}"
+}
+
+# After docker pull, require RepoDigests to contain the expected digest.
+# SHA-tag refs skip this unless EXPECTED_DIGEST is set (CI deploys by digest).
+assert_repo_digest() {
+  local ref="$1"
+  local expected=""
+  if [[ "$ref" == *@sha256:* ]]; then
+    expected="${ref##*@}"
+  elif [[ -n "${EXPECTED_DIGEST:-}" ]]; then
+    expected="$EXPECTED_DIGEST"
+  else
+    return 0
+  fi
+  if [[ ! "$expected" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "invalid expected digest for $ref: $expected" >&2
+    exit 1
+  fi
+  local digests line suffix
+  digests="$(docker inspect --format='{{range .RepoDigests}}{{println .}}{{end}}' "$ref" 2>/dev/null || true)"
+  if [[ -z "$digests" ]]; then
+    echo "pulled image $ref has no RepoDigests; cannot verify $expected" >&2
+    exit 1
+  fi
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    suffix="${line##*@}"
+    if [[ "$suffix" == "$expected" ]]; then
+      echo "verified RepoDigest $expected"
+      return 0
+    fi
+  done <<<"$digests"
+  echo "pulled image $ref RepoDigests do not contain $expected:" >&2
+  echo "$digests" >&2
+  exit 1
+}
+
 COMPOSE_DIR="${COMPOSE_DIR:-/opt/go-clipboard}"
 ENV_FILE="${ENV_FILE:-$COMPOSE_DIR/.env}"
 HEALTH_TIMEOUT_SEC="${HEALTH_TIMEOUT_SEC:-90}"
@@ -58,8 +102,7 @@ if ! flock -n 9; then
 fi
 
 # Refuse to clobber a live deployment that is not the expected predecessor.
-NEW_ID="${IMAGE##*:}"
-NEW_ID="${NEW_ID##*@sha256:}"
+NEW_ID="$(image_identity "$IMAGE")"
 if [[ -n "${EXPECTED_PREVIOUS_SHA:-}" && -f "$STATE_FILE" ]]; then
   LIVE="$(cat "$STATE_FILE")"
   if [[ "$LIVE" != "$EXPECTED_PREVIOUS_SHA" && "$LIVE" != "$NEW_ID" ]]; then
@@ -89,6 +132,7 @@ wait_healthy() {
 
 echo "pulling $IMAGE"
 docker pull "$IMAGE"
+assert_repo_digest "$IMAGE"
 
 echo "applying migrations via image (never on container start)"
 docker run --rm \
@@ -102,6 +146,7 @@ if [[ -n "$PREVIOUS_IMAGE" && "$PREVIOUS_IMAGE" != "$IMAGE" ]]; then
   reject_moving_tag "$PREVIOUS_IMAGE"
   echo "rollback-compatibility check: $PREVIOUS_IMAGE"
   docker pull "$PREVIOUS_IMAGE"
+  assert_repo_digest "$PREVIOUS_IMAGE"
   docker rm -f go-clipboard-prevcheck >/dev/null 2>&1 || true
   docker run -d --name go-clipboard-prevcheck --rm \
     --network "$NETWORK" \

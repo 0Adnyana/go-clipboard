@@ -1,4 +1,10 @@
-## ADDED Requirements
+# production-serving Specification
+
+## Purpose
+
+Production serving — HTTPS at a real hostname via an edge TLS terminator, Host-header enforcement from `PUBLIC_BASE_URL`, the embedded frontend with SPA fallback, and `/api/*` routed by matcher specificity in-process.
+
+## Requirements
 
 ### Requirement: Production is served over HTTPS at a real hostname via an edge
 

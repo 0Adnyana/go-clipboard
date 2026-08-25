@@ -1,7 +1,4 @@
-# Pin the production host's SSH host key here so CI can verify the host with
-# StrictHostKeyChecking=yes (never StrictHostKeyChecking=no).
-#
-# On the workstation that can reach the VPS:
-#   ssh-keyscan -t ed25519,rsa <production-hostname-or-ip> >> deploy/known_hosts
-#
-# Replace this comment block with the real ssh-keyscan lines before enabling deploy.
+# 192.168.0.202:22 SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.16
+192.168.0.202 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCyokHnqL/3mD9O1xjZXfVk2MBsRNZIZT6Cw0H8EQQ8QPUJ24mMp++QW4v89z/1HKQ+ZbGwhpm94nWTsIRqVAgt4e79BVecgbzIaVOxJnOgHbp2cirjwHGlbIbGAZ7ibrBwbp8WBk9jetC5sD5mnzjEJE31wBYSz+LsnB7YEbeNDnC3Bpr5xiMpgK3d5OpQu37/PYXTsI4VaDWiifR2/5VWfntsg466IlWtlVqcPkRf98ZAMUU05Wh82ZBd9n6Dc5OtLH2Lv/ZrBMcKKbu+JBeznjDwKPlFrqXJ1A/VBOWlcl72UC57Tqa4+990791C3waYYUPQSkrql6ATf/hw9rh9bXAuH3oqJ21gO+CkSvzFjx0n+FKXlVFM0R6AH07oB3If68feARLOeWdEHORsjBXM1mDPUgy2DxoZlcVaK7icMOd8Am+840FOfbjoJb/eLclBXw+MpSawAgDqoiiibHnlJMuR1EtBK1UOnD1eoELBZQcjYx8o8U6UPoqCLb9MYec=
+# 192.168.0.202:22 SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.16
+192.168.0.202 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII0qbUI+AGv9JI9+FtofJuJWgdYYX9sgL/8Zu7u5ndR0

@@ -68,7 +68,7 @@ Product intent stays in [`docs/slices/`](docs/slices/); grow the OpenAPI file in
 
 ## Deployment
 
-Production runs as Docker Compose on a private host (e.g. homelab via Portainer), reached from a public edge proxy (e.g. Caddy on a VPS) over a private path such as Tailscale. The edge owns TLS; the app serves plain HTTP on `:8080` with the embedded frontend and API. Exactly one app instance is required (sweeper, deployment locking, in-process limiter).
+Production runs as Docker Compose on a private LXC (e.g. homelab via Portainer), reached from a public edge proxy (e.g. Caddy on a VPS) through a Tailscale **subnet router** onto the LAN. The edge owns TLS; the app serves plain HTTP on `:8080` with the embedded frontend and API. Exactly one app instance is required (sweeper, deployment locking, in-process limiter). Setup progress is the checklist in [`DEPLOYMENT.md`](DEPLOYMENT.md#setup-checklist).
 
 ### Artefacts
 
@@ -82,13 +82,13 @@ Production runs as Docker Compose on a private host (e.g. homelab via Portainer)
 
 ### Required secrets / env
 
-**CI (GitHub Actions secrets):** `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`. Pin the host key in committed `deploy/known_hosts` (never `StrictHostKeyChecking=no`).
+**CI (GitHub Actions secrets):** `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `DEPLOY_HOST` (LXC LAN IP), `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`. Pin that same LAN IP in committed `deploy/known_hosts` (never `StrictHostKeyChecking=no`). The deploy job joins Tailscale (`tag:ci`, `--accept-routes`) before SSH.
 
-**Host env file** (next to `compose.yaml`, from `deploy/env.example`): `PUBLIC_BASE_URL` (absolute HTTPS origin at the edge), `POSTGRES_PASSWORD`, `TRUSTED_PROXY` (edge proxy IP as seen by the app). `IMAGE` is set by the deploy script to a digest or full commit SHA tag — never `latest`.
+**Host env file** (next to `compose.yaml`, from `deploy/env.example`): `PUBLIC_BASE_URL` (absolute HTTPS origin at the edge), `POSTGRES_PASSWORD`, `TRUSTED_PROXY` (edge proxy IP as seen by the app). `IMAGE` is set by the deploy script to a content digest (`registry/name@sha256:…`) — never `latest`.
 
 ### Rollback
 
-Redeploy the previous SHA/digest with `deploy/deploy.sh <previous-image-ref>` only — do not swap the app container by hand. Do **not** migrate down. Each release runs the deployment script’s compatibility checks (previous image healthy against the migrated schema) before swapping.
+Redeploy the previous digest with `deploy/deploy.sh <previous-image-ref>` only — do not swap the app container by hand. Do **not** migrate down. Each release runs the deployment script’s compatibility checks (previous image healthy against the migrated schema) before swapping.
 
 ### Health contract
 
@@ -129,6 +129,7 @@ browser → Caddy :3000 ─┬─ /api/* → Go :8080 → Postgres
 **Production**
 
 ```text
-browser → edge Caddy (TLS) → Tailscale → Go :8080 ─┬─ /api/* → handlers → Postgres
-                                                   └─ /*     → embedded SPA (go:embed)
+browser → edge Caddy (TLS) → Tailscale → subnet router
+       → LAN Compose LXC, Go :8080 ─┬─ /api/* → handlers → Postgres
+                                    └─ /*     → embedded SPA (go:embed)
 ```

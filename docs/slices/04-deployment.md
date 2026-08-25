@@ -63,11 +63,11 @@ sits behind slice 3's limiter by the time anything is running.
   the Go build and `pnpm build` go in, a small runtime comes out carrying the server binary and the
   compiled frontend assets. The default registry is Docker Hub under
   `docker.io/${{ secrets.DOCKERHUB_USERNAME }}/go-clipboard` (the workflow’s `REGISTRY` /
-  `IMAGE_NAME`). CI deploys that SHA-tagged `IMAGE` reference; `deploy/deploy.sh` and `compose.yaml`
-  consume it. `latest` may be pushed as a convenience alias but is refused as a deploy target,
-  because it makes _which commit is live_ unanswerable, and that is the one question a deploy must
-  always be able to answer. The image CI tested is the image that runs — nothing is rebuilt from
-  source on the host.
+  `IMAGE_NAME`). CI deploys that image by content digest (`IMAGE@sha256:…`); `deploy/deploy.sh` and
+  `compose.yaml` consume it. The commit SHA tag is a pointer to that digest. `latest` may be pushed
+  as a convenience alias but is refused as a deploy target, because it makes _which commit is live_
+  unanswerable, and that is the one question a deploy must always be able to answer. The image CI
+  tested is the image that runs — nothing is rebuilt from source on the host.
 - **A production Caddyfile, which is where the skeleton's central bet finally gets settled.** The
   skeleton claims Caddy makes the development topology equal to production minus TLS and a build
   step, and this is the first slice where that is testable rather than asserted. It is also not free:

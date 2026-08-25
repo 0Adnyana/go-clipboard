@@ -7,7 +7,10 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # PRs cancel stale runs. Never cancel main: a workflow-level cancel would
+  # abort publish-and-deploy's SSH session even though that job sets
+  # cancel-in-progress: false.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   REGISTRY: docker.io
@@ -137,20 +140,34 @@ jobs:
           echo "image=${DEST}@${DIGEST}" >>"$GITHUB_OUTPUT"
           echo "sha_image=${DEST}:${SHA}" >>"$GITHUB_OUTPUT"
 
-      - name: Reject moving deploy tag
+      - name: Guard deploy image digest
         env:
-          SHA_IMAGE: ${{ steps.push.outputs.sha_image }}
+          IMAGE: ${{ steps.push.outputs.image }}
         run: |
-          # Guard the value that will be deployed (deploy.sh also rejects moving tags).
-          if [[ "$SHA_IMAGE" == *:latest || "$SHA_IMAGE" == */latest || "$SHA_IMAGE" == latest ]]; then
-            echo "refusing moving tag: $SHA_IMAGE" >&2
+          # Deploy by digest only. The SHA tag is a pointer, not the identity.
+          if [[ "$IMAGE" != *@sha256:* ]]; then
+            echo "refusing non-digest deploy image: $IMAGE" >&2
             exit 1
           fi
-          tag="${SHA_IMAGE##*:}"
-          if [[ ! "$tag" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "refusing non-SHA deploy tag: $SHA_IMAGE" >&2
+          digest="${IMAGE##*@}"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "refusing malformed digest: $IMAGE" >&2
             exit 1
           fi
+          if [[ "$IMAGE" == *:latest || "$IMAGE" == */latest || "$IMAGE" == latest ]]; then
+            echo "refusing moving tag: $IMAGE" >&2
+            exit 1
+          fi
+
+      - name: Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          # Linux does not accept subnet routes by default; required when the
+          # Compose host is a LAN IP behind a Tailscale subnet router.
+          args: --accept-routes
 
       - name: Configure SSH
         env:
@@ -183,15 +200,20 @@ jobs:
 
       - name: Deploy over SSH
         env:
-          IMAGE: ${{ steps.push.outputs.sha_image }}
+          IMAGE: ${{ steps.push.outputs.image }}
         run: |
           PREVIOUS="$(ssh production 'cat /opt/go-clipboard/deployed-sha 2>/dev/null || true')"
           PREV_ARG=""
           if [[ -n "$PREVIOUS" ]]; then
-            PREV_ARG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${PREVIOUS}"
-            # deployed-sha stores a 40-char commit SHA when IMAGE is SHA-tagged.
-            if [[ ! "$PREVIOUS" =~ ^[0-9a-f]{40}$ ]]; then
-              PREV_ARG=""
+            if [[ "$PREVIOUS" == *@sha256:* ]]; then
+              PREV_ARG="$PREVIOUS"
+            elif [[ "$PREVIOUS" == sha256:* ]]; then
+              PREV_ARG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${PREVIOUS}"
+            elif [[ "$PREVIOUS" =~ ^[0-9a-f]{64}$ ]]; then
+              PREV_ARG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:${PREVIOUS}"
+            elif [[ "$PREVIOUS" =~ ^[0-9a-f]{40}$ ]]; then
+              # leftover from SHA-tag deploys before digest pinning
+              PREV_ARG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${PREVIOUS}"
             fi
           fi
           ssh production \

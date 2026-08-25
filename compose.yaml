@@ -37,8 +37,8 @@ services:
       retries: 10
 
   app:
-    # Deploy and rollback MUST reference a full commit SHA tag (or digest).
-    # Never deploy the moving `latest` tag.
+    # Deploy and rollback MUST reference a content digest (CI) or a full commit
+    # SHA tag (manual leftover). Never deploy the moving `latest` tag.
     image: ${IMAGE:?set IMAGE to registry/name@sha256:… or registry/name:<full-git-sha>}
     restart: unless-stopped
     depends_on:

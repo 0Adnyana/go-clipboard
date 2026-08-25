@@ -1,4 +1,10 @@
-## ADDED Requirements
+# production-runtime Specification
+
+## Purpose
+
+The production runtime environment — configuration from the environment with secrets outside the repo and image, a configured public base URL and trusted edge hop, structured logs to stdout, a single-instance constraint, a health-gated swap, and backups scoped to non-ephemeral data.
+
+## Requirements
 
 ### Requirement: Configuration is environment; secrets are outside repo and image
 

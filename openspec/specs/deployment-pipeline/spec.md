@@ -1,4 +1,10 @@
-## ADDED Requirements
+# deployment-pipeline Specification
+
+## Purpose
+
+The CI/CD pipeline — a refuse-first gate (`make test`, `make lint`, sqlc drift check, image build on every commit), default-branch publish and deploy with serialized runs, and rollback by re-pointing to a previous SHA-tagged image.
+
+## Requirements
 
 ### Requirement: The pipeline refuses before it ships
 
